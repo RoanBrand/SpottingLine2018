@@ -1,0 +1,321 @@
+﻿FUNCTION_BLOCK "simulation"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR 
+      "5_6" : "sim_conveyorBorder";
+      "6_7" : "sim_conveyorBorder";
+      "15_16" : "sim_conveyorBorder";
+      "16_17" : "sim_conveyorBorder";
+      tt17 : "sim_turnTable90Bed";
+      "17_18" : "sim_conveyorBorder";
+      "18_19" : "sim_conveyorBorder";
+      "19_20" : "sim_conveyorBorder";
+      "20_21" : "sim_conveyorBorder";
+      "21_22" : "sim_conveyorBorder";
+      tt22 : "sim_encoder_turntable";
+      "22_23" : "sim_conveyorBorder";
+      diptank : "sim_diptank";
+   END_VAR
+
+
+BEGIN
+	// Line
+	"iLineReady" := true;
+	
+	// Conv1
+	"iConv1_vsdReady" := true;
+	(*
+	// Between conv 1 & 2.
+	CASE #s1 OF
+	    0:  // Waiting to send product to next.
+	        IF "oConv1_M_Fwd" AND "oConv2_M_Fwd"
+	            AND "iConv1_prdSens" AND NOT "iConv2_prdSens"
+	        THEN
+	            #conv1_send(IN := false,
+	                        PT := t#4s);
+	            #s1 := 1;
+	        END_IF;
+	        ;
+	    1:  // Sending product to next.
+	        #conv1_send(IN := true,
+	                    PT := t#4s);
+	        
+	        IF #conv1_send.Q THEN
+	            "iConv1_prdSens" := false;
+	            #conv1_send(IN := false,
+	                        PT := t#2s);
+	            #s1 := 2;
+	        ELSE
+	            IF NOT "oConv1_M_Fwd"
+	                OR NOT "oConv2_M_Fwd"
+	            THEN
+	                #s1 := 0;
+	            END_IF;
+	        END_IF;
+	        ;
+	    2:  // Left previous, still to arrive at next.
+	        #conv1_send(IN := true,
+	                    PT := t#2s);
+	        
+	        IF #conv1_send.Q THEN
+	            "iConv2_prdSens" := true;
+	            #s1 := 0;
+	        ELSE
+	            IF NOT "oConv2_M_Fwd" THEN
+	                #s1 := 0;
+	            END_IF;
+	        END_IF;
+	        ;
+	    ELSE  // Statement section ELSE
+	        ;
+	END_CASE;
+	
+	// Conv2
+	"iConv2_vsdReady" := true;
+	
+	// Between conv 2 & 3.
+	CASE #s2 OF
+	    0:  // Waiting to send product to next.
+	        IF "oConv2_M_Fwd" AND "oConv3_M_Fwd"
+	            AND "iConv2_prdSens" AND NOT "iConv3_prdSens" AND NOT "iConv3_prdSens2"
+	            AND "iConv3_prox_pos_0" AND NOT "iConv3_prox_pos_90"
+	        THEN
+	            #conv2_send(IN := false,
+	                        PT := t#4s);
+	            #s2 := 1;
+	        END_IF;
+	        ;
+	    1:  // Sending product to next.
+	        #conv2_send(IN := true,
+	                    PT := t#4s);
+	        
+	        IF #conv2_send.Q THEN
+	            "iConv2_prdSens" := false;
+	            #conv2_send(IN := false,
+	                        PT := t#2s);
+	            #s2 := 2;
+	        ELSE
+	            IF NOT "oConv2_M_Fwd"
+	                OR NOT "oConv3_M_Fwd"
+	                OR NOT "iConv3_prox_pos_0"
+	            THEN
+	                #s2 := 0;
+	            END_IF;
+	        END_IF;
+	        ;
+	    2:  // Left previous, still to arrive at next.
+	        #conv2_send(IN := true,
+	                    PT := t#2s);
+	        
+	        IF #conv2_send.Q THEN
+	            "iConv3_prdSens" := true;
+	            #s2 := 0;
+	        ELSE
+	            IF NOT "oConv3_M_Fwd"
+	                OR NOT "iConv3_prox_pos_0"
+	            THEN
+	                #s2 := 0;
+	            END_IF;
+	        END_IF;
+	        ;
+	    ELSE  // Statement section ELSE
+	        ;
+	END_CASE;
+	
+	// Conv4
+	"iConv4_vsdReady" := true;
+	
+	// Between conv 4 & 3.
+	CASE #s3 OF
+	    0:  // Waiting to send product to next.
+	        IF "oConv4_M_Fwd" AND "oConv3_M_Rev"
+	            AND "iConv4_prdSens" AND NOT "iConv3_prdSens" AND NOT "iConv3_prdSens2"
+	            AND "iConv3_prox_pos_0" AND NOT "iConv3_prox_pos_90"
+	        THEN
+	            #conv3_send(IN := false,
+	                        PT := t#4s);
+	            #s3 := 1;
+	        END_IF;
+	        ;
+	    1:  // Sending product to next.
+	        #conv3_send(IN := true,
+	                    PT := t#4s);
+	        
+	        IF #conv3_send.Q THEN
+	            "iConv4_prdSens" := false;
+	            #conv3_send(IN := false,
+	                        PT := t#2s);
+	            #s3 := 2;
+	        ELSE
+	            IF NOT "oConv4_M_Fwd"
+	                OR NOT "oConv3_M_Rev"
+	                OR NOT "iConv3_prox_pos_0"
+	            THEN
+	                #s3 := 0;
+	            END_IF;
+	        END_IF;
+	        ;
+	    2:  // Left previous, still to arrive at next.
+	        #conv3_send(IN := true,
+	                    PT := t#2s);
+	        
+	        IF #conv3_send.Q THEN
+	            "iConv3_prdSens2" := true;
+	            #s3 := 0;
+	        ELSE
+	            IF NOT "oConv3_M_Rev"
+	                OR NOT "iConv3_prox_pos_0"
+	            THEN
+	                #s3 := 0;
+	            END_IF;
+	        END_IF;
+	        ;
+	    ELSE  // Statement section ELSE
+	        ;
+	END_CASE;
+	
+	// Conv 3
+	"iConv3_vsdReady" := true;
+	"iConv3_TT_vsdReady" := true;
+	
+	#tt3(turnCW := "oConv3_TT_CW",
+	     turnACW := "oConv3_TT_ACW",
+	     pos0 => "iConv3_prox_pos_0",
+	     pos0_slow => "iConv3_prox_slow_0",
+	     pos90 => "iConv3_prox_pos_90",
+	     pos90_slow => "iConv3_prox_slow_90");
+	
+	#"3_5"(prev_m := "oConv3_M_Fwd",
+	       next_m := "oConv5_M_Fwd",
+	       invert_next_sens := true,
+	       prev_sens := "iConv3_prdSens",
+	       next_sens := "iConv5_prdSens");
+	*)
+	// Conv 5
+	"iConv5_vsdReady" := true;
+	
+	#"5_6"(prev_m := "oConv5_M_Fwd",
+	       next_m := "oConv6_M_Fwd",
+	       invert_prev_sens := true,
+	       prev_sens := "iConv5_prdSens",
+	       next_sens := "iConv6_prdSens");
+	
+	// Conv 6
+	"iConv6_vsdReady" := true;
+	
+	#"6_7"(prev_m := "oConv6_M_Fwd",
+	       next_m := "oConv7_M_Fwd",
+	       invert_next_sens := true,
+	       prev_sens := "iConv6_prdSens",
+	       next_sens := "iConv7_prdSens");
+	
+	// Conv7
+	"iConv7_vsdReady" := true;
+	
+	// Conv15
+	"iConv15_vsdReady" := true;
+	
+	#"15_16"(prev_m := "oConv15_M_Fwd",
+	         next_m := "oConv16_M_Fwd",
+	         prev_sens := "iConv15_prdSens",
+	         next_sens := "iConv16_prdSens");
+	
+	// Conv16
+	"iConv16_vsdReady" := true;
+	
+	#"16_17"(prev_m := "oConv16_M_Fwd",
+	         next_m := "oConv17_M_Fwd",
+	         prev_sens := "iConv16_prdSens",
+	         next_sens := "iConv17_prdSens");
+	
+	// Conv17
+	"iConv17_vsdReady" := true;
+	"iConv17_TT_vsdReady" := true;
+	
+	#tt17(turnCW := "oConv17_TT_CW",
+	      turnACW := "oConv17_TT_ACW",
+	      pos0 => "iConv17_prox_pos_0",
+	      pos0_slow => "iConv17_prox_slow_0",
+	      pos90 => "iConv17_prox_pos_90",
+	      pos90_slow => "iConv17_prox_slow_90");
+	
+	#"17_18"(prev_m := "oConv17_M_Fwd",
+	         next_m := "oConv18_M_Fwd",
+	         prev_sens := "iConv17_prdSens",
+	         next_sens := "iConv18_prdSens");
+	
+	// Conv18
+	"iConv18_vsdReady" := true;
+	
+	#"18_19"(prev_m := "oConv18_M_Fwd",
+	         next_m := "oConv19_M_Fwd",
+	         prev_sens := "iConv18_prdSens",
+	         next_sens := "iConv19_prdSens");
+	
+	// Conv19
+	"iConv19_vsdReady" := true;
+	
+	#"19_20"(prev_m := "oConv19_M_Fwd",
+	         next_m := "oConv20_M_Fwd",
+	         invert_next_sens := true,
+	         prev_sens := "iConv19_prdSens",
+	         next_sens := "iConv20_prdSens");
+	
+	// Conv20
+	"iConv20_vsdReady" := true;
+	
+	#"20_21"(prev_m := "oConv20_M_Fwd",
+	         next_m := "oConv21_M_Fwd",
+	         invert_prev_sens := true,
+	         invert_next_sens := true,
+	         prev_sens := "iConv20_prdSens",
+	         next_sens := "iConv21_prdSens");
+	
+	// Conv21
+	"iConv21_vsdReady" := true;
+	
+	#"21_22"(prev_m := "oConv21_M_Fwd",
+	         next_m := "oConv22_M_Fwd",
+	         invert_prev_sens := true,
+	         invert_next_sens := true,
+	         prev_sens := "iConv21_prdSens",
+	         next_sens := "iConv22_prdSens");
+	
+	// Conv 22
+	"iConv22_vsdReady" := true;
+	"iConv22_TT_vsdReady" := true;
+	
+	#tt22(turnCW := "oConv22_TT_CW",
+	      turnACW := "oConv22_TT_ACW",
+	      //encoderStartValue := "line_DB".conv22.homePosCount
+	      //encoderStartValue := 16750187 // halfway between 2 & 4
+	      encoderStartValue := 16749163 // halfway between 2 & 3
+	);
+	"iConv22_pos_encoder" := DINT_TO_DWORD(#tt22.ev);
+	
+	// Conv 23                                                                                                                                                                                                                                                                                                                                                                           
+	"iConv23_vsdReady" := true;
+	
+	#"22_23"(prev_m := "oConv22_M_Fwd",
+	         next_m := "oConv23_M_Fwd",
+	         invert_prev_sens := true,
+	         invert_next_sens := true,
+	         prev_sens := "iConv22_prdSens",
+	         next_sens := "iConv23_prdSens");
+	
+	// Conv 26
+	"iConv26_RO_vsdReady" := true;
+	
+	#diptank(rollover_Fwd := "oConv26_RO_Fwd",
+	         rollover_Rev := "oConv26_RO_Rev",
+	         prd_clamp := "oConv26_prd_clamp",
+	         diptank_up := "oConv26_diptank_up",
+	         diptank_down := "oConv26_diptank_down",
+	         prox_rollover_pos_home => "iConv26_prox_home",
+	         prox_rollover_pos_1 => "iConv26_prox_pos_1",
+	         prox_rollover_pos_2 => "iConv26_prox_pos_2",
+	         prox_diptank_up => "iConv26_prox_diptank_up",
+	         prox_diptank_down => "iConv26_prox_diptank_down");
+	
+END_FUNCTION_BLOCK
+

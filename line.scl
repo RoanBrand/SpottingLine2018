@@ -1,0 +1,569 @@
+﻿FUNCTION_BLOCK "line"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      LeakTestON : Bool;   // True: Send every 10th prd to Leak tester.
+   END_VAR
+
+   VAR_OUTPUT 
+      alarms_out : Word;
+      alarms { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} AT alarms_out : Array[0..15] of Bool;
+   END_VAR
+
+   VAR 
+      conv1 : "conveyor";
+      conv2 : "conveyor";
+      conv4 : "conveyor";
+      conv3 : "turnTable90";
+      conv5 : "conveyor";
+      conv6 : "conveyor";
+      conv7 : "conveyor";
+      conv8 : "conveyor";
+      conv9 : "conveyor";
+      conv10 : "conveyor";
+      conv11 : "conveyor";
+      conv12 : "conveyor";
+      conv13 : "conveyor";
+      conv14 : "conveyor";
+      conv15 : "conveyor";
+      conv16 : "conveyor";
+      conv17 : "turnTable90";
+      conv18 : "conveyor";
+      conv19 : "conveyor";
+      conv20 : "conveyor";
+      conv21 : "conveyor";
+      conv22 : "turnTable90_Dual";
+      conv23 : "conveyor";
+      conv24 : "rollover";
+      conv25 : "conveyor";
+      conv26 : "diptank";
+      conv27 : "conveyor";
+      conv28 : "conveyor";
+      conv29 : "conveyor";
+      conv30 : "conveyor";
+      conv31 : "conveyor";
+      conv32 : "conveyor";
+      conv33 : "conveyor";
+      rej_time {OriginalPartName := 'TON'; LibVersion := '1.0'} : TON;
+      rej_prox_prev : Bool;
+      conv22rxed : Int;
+      conv22_oldstate : Int;
+      oilpump_delay {OriginalPartName := 'TOF'; LibVersion := '1.0'} : TOF;
+      xConv19BtnMode : Bool;   // False: Both must be pressed (latching) True: Either can be pressed any time.
+      btn19_1_pressed : Bool;
+      btn19_2_pressed : Bool;
+   END_VAR
+
+   VAR_TEMP 
+      DMC_IN : Int;
+      DMC_OUT : Int;
+      LT_IN : Int;
+      dmc_prd : "Product";
+      rej_state : Int;
+      rej_signal : Int;
+   END_VAR
+
+
+BEGIN
+	(* Conveyor line control *)
+	
+	// On-load conveyor for M/C2 & M/C3.
+	#conv1(usrBtn := "iConv1_usrBtn" OR "iConv1_usrBtn2",
+	       prdSens := "iConv1_prdSens",
+	       eStop := NOT "iLineReady",
+	       vsdReady := "iConv1_vsdReady",
+	       comms_from_next_conv := #conv2.comms_to_prev_conv,
+	       
+	       rollersFwd => "oConv1_M_Fwd"
+	);
+	
+	#conv2(usrBtn := "iConv2_usrBtn",
+	       prdSens := "iConv2_prdSens",
+	       eStop := NOT "iLineReady",
+	       vsdReady := "iConv2_vsdReady",
+	       comms_from_prev_conv := #conv1.comms_to_next_conv,
+	       comms_from_next_conv := #conv3.comms_to_1,
+	       
+	       rollersFwd => "oConv2_M_Fwd"
+	);
+	
+	// On-load conveyor for M/C1.
+	#conv4(usrBtn := "iConv4_usrBtn",
+	       prdSens := "iConv4_prdSens",
+	       eStop := NOT "iLineReady",
+	       vsdReady := "iConv4_vsdReady",
+	       comms_from_next_conv := #conv3.comms_to_2,
+	       
+	       rollersFwd => "oConv4_M_Fwd"
+	);
+	
+	// Turn table 1
+	#conv3(prdSens := "iConv3_prdSens",
+	       prdSens2 := "iConv3_prdSens2",
+	       prox_pos_0 := "iConv3_prox_pos_0",
+	       prox_slow_0 := "iConv3_prox_slow_0",
+	       prox_pos_90 := "iConv3_prox_pos_90",
+	       prox_slow_90 := "iConv3_prox_slow_90",
+	       eStop := NOT "iLineReady",
+	       vsdReady := "iConv3_vsdReady",
+	       vsdReady_TT := "iConv3_TT_vsdReady",
+	       comms_from_1 := #conv2.comms_to_next_conv,
+	       comms_from_2 := #conv4.comms_to_next_conv,
+	       comms_from_4 := #conv5.comms_to_prev_conv,
+	       
+	       xOutDir := true,
+	       xPrdDirection90 := true,
+	       xAutoMode := true,
+	       
+	       rollersFwd => "oConv3_M_Fwd",
+	       rollersRev => "oConv3_M_Rev",
+	       turnTableCW => "oConv3_TT_CW",
+	       turnTableACW => "oConv3_TT_ACW",
+	       turnTableFast => "oConv3_TT_Fast"
+	);
+	
+	#conv5(usrBtn := TRUE,
+	       prdSens := NOT "iConv5_prdSens",
+	       eStop := NOT "iLineReady",
+	       vsdReady := "iConv5_vsdReady",
+	       comms_from_prev_conv := #conv3.comms_to_4,
+	       comms_from_next_conv := #conv6.comms_to_prev_conv,
+	       
+	       rollersFwd => "oConv5_M_Fwd"
+	);
+	
+	#conv6(usrBtn := TRUE,
+	       prdSens := "iConv6_prdSens",
+	       eStop := NOT "iLineReady",
+	       vsdReady := "iConv6_vsdReady",
+	       comms_from_prev_conv := #conv5.comms_to_next_conv,
+	       comms_from_next_conv := #conv7.comms_to_prev_conv,
+	       
+	       rollersFwd => "oConv6_M_Fwd"
+	);
+	
+	#conv7(usrBtn := TRUE,
+	       prdSens := NOT "iConv7_prdSens",
+	       eStop := NOT "iLineReady",
+	       vsdReady := "iConv7_vsdReady",
+	       comms_from_prev_conv := #conv6.comms_to_next_conv,
+	       comms_from_next_conv := #conv8.comms_to_prev_conv,
+	       
+	       rollersFwd => "oConv7_M_Fwd"
+	);
+	
+	#conv8(usrBtn := TRUE,
+	       prdSens := NOT "iConv8_prdSens",
+	       eStop := NOT "iLineReady",
+	       vsdReady := "iConv8_vsdReady",
+	       comms_from_prev_conv := #conv7.comms_to_next_conv,
+	       comms_from_next_conv := #conv9.comms_to_prev_conv,
+	       
+	       rollersFwd => "oConv8_M_Fwd"
+	);
+	
+	#conv9(usrBtn := TRUE,
+	       prdSens := NOT "iConv9_prdSens",
+	       eStop := NOT "iLineReady",
+	       vsdReady := "iConv9_vsdReady",
+	       comms_from_prev_conv := #conv8.comms_to_next_conv,
+	       comms_from_next_conv := #conv10.comms_to_prev_conv,
+	       
+	       rollersFwd => "oConv9_M_Fwd"
+	);
+	
+	#conv10(usrBtn := TRUE,
+	        prdSens := NOT "iConv10_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv10_vsdReady",
+	        comms_from_prev_conv := #conv9.comms_to_next_conv,
+	        comms_from_next_conv := #conv11.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv10_M_Fwd"
+	);
+	
+	#conv11(usrBtn := TRUE,
+	        prdSens := NOT "iConv11_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv11_vsdReady",
+	        comms_from_prev_conv := #conv10.comms_to_next_conv,
+	        comms_from_next_conv := #conv12.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv11_M_Fwd"
+	);
+	
+	#conv12(usrBtn := TRUE,
+	        prdSens := NOT "iConv12_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv12_vsdReady",
+	        comms_from_prev_conv := #conv11.comms_to_next_conv,
+	        comms_from_next_conv := #conv13.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv12_M_Fwd"
+	);
+	
+	#conv13(usrBtn := TRUE,
+	        prdSens := "iConv13_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv13_vsdReady",
+	        comms_from_prev_conv := #conv12.comms_to_next_conv,
+	        comms_from_next_conv := #conv14.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv13_M_Fwd"
+	);
+	
+	IF "iRb6212_motor_run" AND "iRb6212_ready_to_receive" THEN
+	    #DMC_IN := 101;
+	ELSE
+	    #DMC_IN := 0;
+	END_IF;
+	
+	// Future turntable.
+	#conv14(usrBtn := TRUE,
+	        prdSens := NOT "iConv14_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv14_vsdReady",
+	        comms_from_prev_conv := #conv13.comms_to_next_conv,
+	        comms_from_next_conv := #DMC_IN,
+	        
+	        rollersFwd => "oConv14_M_Fwd"
+	);
+	
+	"oConv14_prod_sens" := NOT "iConv14_prdSens"; //to dmc
+	"oConv14_ready_to_send" := #conv14.comms_to_next_conv = 100;
+	
+	IF "iDMC_out_req_send" AND "iBarcodereaderRelease" THEN
+	    IF #conv15.comms_to_prev_conv = 101 THEN
+	        #DMC_OUT := 102;
+	    ELSE
+	        #DMC_OUT := 100;
+	    END_IF;
+	ELSE
+	    #DMC_OUT := 0;
+	END_IF;
+	
+	#dmc_prd.Rejected := NOT "iBarcodereaderNotReject";
+	
+	#conv15(usrBtn := TRUE,
+	        prdSens := "iConv15_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv15_vsdReady",
+	        comms_from_prev_conv := #DMC_OUT,
+	        comms_from_next_conv := #conv16.comms_to_prev_conv,
+	        prd_in := #dmc_prd,
+	        
+	        rollersFwd => "oConv15_M_Fwd"
+	);
+	
+	"oDMC_out_perm_send" := #conv15.comms_to_prev_conv = 101;
+	"oConv15_prod_sens" := "iConv15_prdSens";//to dmc
+	"oConv15_run_fb" := "oConv15_M_Fwd";// to dmc
+	"oRb6215Slow" := "iRb6215Slow"; // slow signal to trigger barcodereader
+	"oRb6215Stop" := "iRbStop";     // prod sensor on bg6215 for barcodereader
+	
+	#conv16(usrBtn := TRUE,
+	        prdSens := "iConv16_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv16_vsdReady",
+	        comms_from_prev_conv := #conv15.comms_to_next_conv,
+	        comms_from_next_conv := #conv17.comms_to_1,
+	        prd_in := #conv15.prd_out,
+	        
+	        rollersFwd => "oConv16_M_Fwd"
+	);
+	
+	CASE #rej_state OF
+	    0:
+	        IF "iRejProx" THEN
+	            #rej_signal := 0;
+	        ELSE
+	            #rej_signal := 101;
+	        END_IF;
+	        IF #conv17.comms_to_3 = 102 THEN
+	            #rej_state := 1;
+	        END_IF;
+	        ;
+	    1:
+	        #rej_time(IN := true,
+	                  PT := t#20s);
+	        IF #rej_time.Q OR (NOT "iRejProx" AND #rej_prox_prev) THEN
+	            #rej_signal := 0;
+	            #rej_state := 0;
+	        END_IF;
+	        ;
+	END_CASE;
+	
+	#rej_prox_prev := "iRejProx";
+	
+	// Turn table 2
+	#conv17(prdSens := "iConv17_prdSens",
+	        prdSens2 := NOT "iConv17_prdSens2",
+	        prox_pos_0 := "iConv17_prox_pos_0",
+	        prox_slow_0 := "iConv17_prox_slow_0",
+	        prox_pos_90 := "iConv17_prox_pos_90",
+	        prox_slow_90 := "iConv17_prox_slow_90",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv17_vsdReady",
+	        vsdReady_TT := "iConv17_TT_vsdReady",
+	        comms_from_1 := #conv16.comms_to_next_conv,
+	        comms_from_3 := #rej_signal, // unpowered reject conveyor. can use reject prd sensor here.
+	        comms_from_4 := #conv18.comms_to_prev_conv,
+	        prd_in1 := #conv16.prd_out,
+	        
+	        xOutDir := NOT #conv17.prd.Rejected,
+	        xPrdDirection90 := true,
+	        xAutoMode := true,
+	        
+	        rollersFwd => "oConv17_M_Fwd",
+	        rollersRev => "oConv17_M_Rev",
+	        turnTableCW => "oConv17_TT_CW",
+	        turnTableACW => "oConv17_TT_ACW",
+	        turnTableFast => "oConv17_TT_Fast"
+	);
+	
+	#conv18(usrBtn := TRUE,
+	        prdSens := "iConv18_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv18_vsdReady",
+	        comms_from_prev_conv := #conv17.comms_to_4,
+	        comms_from_next_conv := #conv19.comms_to_prev_conv,
+	        prd_in := #conv17.prd_out4,
+	        
+	        rollersFwd => "oConv18_M_Fwd"
+	);
+	
+	// Conveyor 19 2 buttons control
+	IF NOT #xConv19BtnMode AND #conv19.state = 3 THEN
+	    IF "iConv19_usrBtn1" THEN
+	        #btn19_1_pressed := true;
+	    END_IF;
+	    IF "iConv19_usrBtn2" THEN
+	        #btn19_2_pressed := true;
+	    END_IF;
+	END_IF;
+	
+	#conv19(usrBtn := (#xConv19BtnMode AND ("iConv19_usrBtn1" OR "iConv19_usrBtn2")) OR (NOT #xConv19BtnMode AND #btn19_1_pressed AND #btn19_2_pressed),
+	        prdSens := "iConv19_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv19_vsdReady",
+	        comms_from_prev_conv := #conv18.comms_to_next_conv,
+	        comms_from_next_conv := #conv20.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv19_M_Fwd"
+	);
+	
+	IF #conv19.state <> 3 THEN
+	    #btn19_1_pressed := false;
+	    #btn19_2_pressed := false;
+	END_IF;
+	
+	#conv20(usrBtn := TRUE,
+	        prdSens := NOT "iConv20_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv20_vsdReady",
+	        comms_from_prev_conv := #conv19.comms_to_next_conv,
+	        comms_from_next_conv := #conv21.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv20_M_Fwd"
+	);
+	
+	#conv21(usrBtn := TRUE,
+	        prdSens := NOT "iConv21_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv21_vsdReady",
+	        comms_from_prev_conv := #conv20.comms_to_next_conv,
+	        comms_from_next_conv := #conv22.comms_to_1,
+	        
+	        rollersFwd => "oConv21_M_Fwd"
+	);
+	
+	IF "iLT_Receiving" THEN
+	    #LT_IN := 101;
+	ELSE
+	    #LT_IN := 0;
+	END_IF;
+	
+	// Turn table 3
+	#conv22(prdSens := NOT "iConv22_prdSens",
+	        prdSens2 := NOT "iConv22_prdSens2",
+	        prox_home := "iConv22_prox_pos_0",
+	        encoder_pos := DWORD_TO_DINT("iConv22_pos_encoder"),
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv22_vsdReady",
+	        vsdReady_TT := "iConv22_TT_vsdReady",
+	        comms_from_1 := #conv21.comms_to_next_conv,
+	        comms_from_3 := #conv23.comms_to_prev_conv,
+	        comms_from_4 := #LT_IN,
+	        
+	        xOutDir := #LeakTestON AND (#conv22rxed = 9),
+	        xAutoMode := true,
+	        
+	        rollersFwd => "oConv22_M_Fwd",
+	        rollersRev => "oConv22_M_Rev",
+	        turnTableCW => "oConv22_TT_CW",
+	        turnTableACW => "oConv22_TT_ACW",
+	        turnTableFast => "oConv22_TT_Fast"
+	);
+	
+	// if conv 22 had a successful receive
+	IF #LeakTestON AND (#conv22.state = 9) AND (#conv22_oldstate = 2) THEN
+	    #conv22rxed := #conv22rxed + 1;
+	    IF #conv22rxed >= 10 THEN
+	        #conv22rxed := 1;
+	    END_IF;
+	END_IF;
+	#conv22_oldstate := #conv22.state;
+	
+	#conv23(usrBtn := "iConv23_usrBtn",
+	        prdSens := NOT "iConv23_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv23_vsdReady",
+	        comms_from_prev_conv := #conv22.comms_to_3,
+	        comms_from_next_conv := #conv24.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv23_M_Fwd"
+	);
+	
+	// Rollover
+	#conv24(usrBtn_DHS := "iConv24_DHS",
+	        usrBtn_Dir := "iConv24_Dir",
+	        prox_pos_home := "iConv24_prox_pos_home",
+	        prox_pos_1 := "iConv24_prox_pos_1",
+	        prox_pos_2 := "iConv24_prox_pos_2",
+	        prdSens_obst1 := "iConv24_ObstrSens1",
+	        prdSens_obst2 := "iConv24_ObstrSens2",
+	        eStop := NOT "iLineReady",
+	        vsdReady_RO := "iConv24_RO_vsdReady",
+	        comms_from_prev_conv := #conv23.comms_to_next_conv,
+	        comms_from_next_conv := #conv25.comms_to_prev_conv,
+	        
+	        rollover_Fwd => "oConv24_RO_Fwd",
+	        rollover_Rev => "oConv24_RO_Rev",
+	        prd_clamp => "oConv24_prd_clamp"
+	);
+	
+	#conv25(usrBtn := "iConv25_usrBtn",
+	        prdSens := NOT "iConv25_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv25_vsdReady",
+	        comms_from_prev_conv := #conv24.comms_to_next_conv,
+	        comms_from_next_conv := #conv26.comms_to_prev_conv,
+	        xOnload := true,
+	        
+	        rollersFwd => "oConv25_M_Fwd"
+	);
+	
+	// Diptank
+	#conv26(usrBtn_Dip := "iConv26_DipBtn",
+	        prox_rollover_pos_home := "iConv26_prox_home",
+	        prox_rollover_pos_1 := "iConv26_prox_pos_1",
+	        prox_rollover_pos_2 := "iConv26_prox_pos_2",
+	        prox_diptank_up := "iConv26_prox_diptank_up",
+	        prox_diptank_down := "iConv26_prox_diptank_down",
+	        prdSens_obst1 := "iConv26_ObstrSens1",
+	        prdSens_obst2 := "iConv26_ObstrSens2",
+	        eStop := NOT "iLineReady",
+	        vsdReady_RO := "iConv26_RO_vsdReady",
+	        comms_from_prev_conv := #conv25.comms_to_next_conv,
+	        comms_from_next_conv := #conv27.comms_to_prev_conv,
+	        
+	        rollover_Fwd => "oConv26_RO_Fwd",
+	        rollover_Rev => "oConv26_RO_Rev",
+	        prd_clamp => "oConv26_prd_clamp",
+	        diptank_up => "oConv26_diptank_up",
+	        diptank_down => "oConv26_diptank_down"
+	);
+	
+	#conv27(usrBtn := "iConv27_usrBtn" OR "iConv27_usrBtn2",
+	        prdSens := NOT "iConv27_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv27_vsdReady",
+	        comms_from_prev_conv := #conv26.comms_to_next_conv,
+	        comms_from_next_conv := #conv28.comms_to_prev_conv,
+	        xOnload := true,
+	        
+	        rollersFwd => "oConv27_M_Fwd"
+	);
+	
+	#conv28(usrBtn := TRUE,
+	        prdSens := NOT "iConv28_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv28_vsdReady",
+	        comms_from_prev_conv := #conv27.comms_to_next_conv,
+	        comms_from_next_conv := #conv29.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv28_M_Fwd"
+	);
+	
+	#conv29(usrBtn := TRUE,
+	        prdSens := NOT "iConv29_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv29_vsdReady",
+	        comms_from_prev_conv := #conv28.comms_to_next_conv,
+	        comms_from_next_conv := #conv30.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv29_M_Fwd"
+	);
+	
+	#conv30(usrBtn := TRUE,
+	        prdSens := NOT "iConv30_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv30_vsdReady",
+	        comms_from_prev_conv := #conv29.comms_to_next_conv,
+	        comms_from_next_conv := #conv31.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv30_M_Fwd"
+	);
+	
+	#conv31(usrBtn := TRUE,
+	        prdSens := NOT "iConv31_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv31_vsdReady",
+	        comms_from_prev_conv := #conv30.comms_to_next_conv,
+	        comms_from_next_conv := #conv32.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv31_M_Fwd"
+	);
+	
+	#conv32(usrBtn := TRUE,
+	        prdSens := NOT "iConv32_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv32_vsdReady",
+	        comms_from_prev_conv := #conv31.comms_to_next_conv,
+	        comms_from_next_conv := #conv33.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv32_M_Fwd"
+	);
+	
+	#conv33(usrBtn := TRUE,
+	        prdSens := NOT "iConv33_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv33_vsdReady",
+	        comms_from_prev_conv := #conv32.comms_to_next_conv,
+	        //comms_from_next_conv := #conv34.comms_to_prev_conv,
+	        
+	        rollersFwd => "oConv33_M_Fwd"
+	);
+	
+	// conveyor removed
+	(*
+	#conv34(usrBtn := TRUE,
+	        prdSens := NOT "iConv34_prdSens",
+	        eStop := NOT "iLineReady",
+	        vsdReady := "iConv34_vsdReady",
+	        comms_from_prev_conv := #conv33.comms_to_next_conv,
+	        
+	        rollersFwd => "oConv34_M_Fwd"
+	);
+	*)
+	
+	// Temporary reset. Remove and use HMI.
+	"emReset_remote" := true;
+	"oResetLine" := true; // rename tag
+	
+	// Driptray oil removal pump
+	#oilpump_delay(IN := "iLevelSwitch",
+	               PT := t#10s);
+	"oOilpump" := #oilpump_delay.Q;
+END_FUNCTION_BLOCK
+

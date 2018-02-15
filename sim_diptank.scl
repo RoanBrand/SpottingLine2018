@@ -1,0 +1,249 @@
+﻿FUNCTION_BLOCK "sim_diptank"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      rollover_Fwd { ExternalVisible := 'False'} : Bool;   // True-> Rollover cage turning to pos1 (90)
+      rollover_Rev { ExternalVisible := 'False'} : Bool;   // True-> Rollover cage turning to pos2 (-90)
+      prd_clamp { ExternalVisible := 'False'} : Bool;   // Product top clamp activated if not in home pos.
+      diptank_up { ExternalVisible := 'False'} : Bool;   // Lift rollover cage out of oil into air.
+      diptank_down { ExternalVisible := 'False'} : Bool;   // Submerge rollover cage in oil.
+   END_VAR
+
+   VAR_OUTPUT 
+      prox_rollover_pos_home { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Rollover cage in home position.
+      prox_rollover_pos_1 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Rollover cage in 90 degrees pos.
+      prox_rollover_pos_2 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Rollover cage in -90 degrees pos.
+      prox_diptank_up { ExternalVisible := 'False'} : Bool;   // Rollover cage out of oil.
+      prox_diptank_down { ExternalVisible := 'False'} : Bool;   // Rollover cage submerged in oil.
+      prdSens_obst1 { ExternalVisible := 'False'} : Bool;   // obstruction sensor near prev conv
+      prdSens_obst2 { ExternalVisible := 'False'} : Bool;   // obstruction sensor near next conv
+   END_VAR
+
+   VAR 
+      cageState : Int;
+      liftState : Int;
+      ttimer {OriginalPartName := 'TON'; LibVersion := '1.0'} : TON;
+      liftTimer {OriginalPartName := 'TON'; LibVersion := '1.0'} : TON;
+   END_VAR
+
+
+BEGIN
+	// Cage
+	CASE #cageState OF
+	    0:  // init
+	        #prox_rollover_pos_home := true;
+	        #cageState := 1;
+	        ;
+	    1:  // home. leave for pos1
+	        #ttimer(IN := #rollover_Fwd,
+	                PT := t#200ms);
+	        IF #ttimer.Q THEN
+	            #prox_rollover_pos_home := false;
+	            #ttimer(IN := false,
+	                    PT := t#5s);
+	            #cageState := 2;
+	        ELSIF #rollover_Rev THEN
+	            #ttimer(IN := false,
+	                    PT := t#200ms);
+	            #cageState := 6;
+	        END_IF;
+	        ;
+	    2:  // arrive @ pos1
+	        #ttimer(IN := #rollover_Fwd,
+	                PT := t#5s);
+	        IF #ttimer.Q THEN
+	            #prox_rollover_pos_1 := true;
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #cageState := 3;
+	        ELSIF #rollover_Rev THEN
+	            #ttimer(IN := false,
+	                    PT := t#5s);
+	            #cageState := 5;
+	        END_IF;
+	        ;
+	    3:  // pos1
+	        #ttimer(IN := #rollover_Fwd,
+	                PT := t#1s);
+	        IF #ttimer.Q THEN
+	            // error - run past pos1
+	            #prox_rollover_pos_1 := false;
+	            #cageState := 30;
+	        END_IF;
+	        IF #rollover_Rev AND NOT #rollover_Fwd THEN
+	            #ttimer(IN := false,
+	                    PT := t#200ms);
+	            #cageState := 4;
+	        END_IF;
+	        ;
+	    4:  // leaving pos1 for home
+	        #ttimer(IN := #rollover_Rev,
+	                PT := t#200ms);
+	        IF #ttimer.Q THEN
+	            #prox_rollover_pos_1 := false;
+	            #ttimer(IN := false,
+	                    PT := t#5s);
+	            #cageState := 5;
+	        ELSIF #rollover_Fwd THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #cageState := 3;
+	        END_IF;
+	        ;
+	    5:  // arrive @ home from pos1
+	        #ttimer(IN := #rollover_Rev,
+	                PT := t#5s);
+	        IF #ttimer.Q THEN
+	            #prox_rollover_pos_home := true;
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #cageState := 6;
+	        ELSIF #rollover_Fwd THEN
+	            #ttimer(IN := false,
+	                    PT := t#5s);
+	            #cageState := 2;
+	        END_IF;
+	        ;
+	    6:  // home. leave for pos2
+	        #ttimer(IN := #rollover_Rev,
+	                PT := t#200ms);
+	        IF #ttimer.Q THEN
+	            #prox_rollover_pos_home := false;
+	            #ttimer(IN := false,
+	                    PT := t#5s);
+	            #cageState := 7;
+	        ELSIF #rollover_Fwd THEN
+	            #ttimer(IN := false,
+	                    PT := t#200ms);
+	            #cageState := 1;
+	        END_IF;
+	        ;
+	    7:  // arrive @ pos2
+	        #ttimer(IN := #rollover_Rev,
+	                PT := t#5s);
+	        IF #ttimer.Q THEN
+	            #prox_rollover_pos_2 := true;
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #cageState := 8;
+	        ELSIF #rollover_Fwd THEN
+	            #ttimer(IN := false,
+	                    PT := t#5s);
+	            #cageState := 10;
+	        END_IF;
+	        ;
+	    8:  // pos2
+	        #ttimer(IN := #rollover_Rev,
+	                PT := t#1s);
+	        IF #ttimer.Q THEN
+	            // error - run past pos2
+	            #prox_rollover_pos_2 := false;
+	            #cageState := 31;
+	        END_IF;
+	        IF #rollover_Fwd AND NOT #rollover_Rev THEN
+	            #ttimer(IN := false,
+	                    PT := t#200ms);
+	            #cageState := 9;
+	        END_IF;
+	        ;
+	    9:  // leaving pos2 for home
+	        #ttimer(IN := #rollover_Fwd,
+	                PT := t#200ms);
+	        IF #ttimer.Q THEN
+	            #prox_rollover_pos_2 := false;
+	            #ttimer(IN := false,
+	                    PT := t#5s);
+	            #cageState := 10;
+	        ELSIF #rollover_Rev THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #cageState := 8;
+	        END_IF;
+	        ;
+	    10: // arrive @ home from pos2
+	        #ttimer(IN := #rollover_Fwd,
+	                PT := t#5s);
+	        IF #ttimer.Q THEN
+	            #prox_rollover_pos_home := true;
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #cageState := 1;
+	        ELSIF #rollover_Rev THEN
+	            #ttimer(IN := false,
+	                    PT := t#5s);
+	            #cageState := 7;
+	        END_IF;
+	        ;
+	END_CASE;
+	
+	// Dip lift
+	CASE #liftState OF
+	    0:  // init
+	        #prox_diptank_down := true;
+	        #liftState := 1;
+	        ;
+	    1:  // down pos
+	        IF #diptank_up AND NOT #diptank_down THEN
+	            #liftTimer(IN := false,
+	                       PT := t#3s);
+	            #liftState := 2;
+	        END_IF;
+	        ;
+	    2:  // leaving down
+	        #liftTimer(IN := true,
+	                   PT := t#3s);
+	        IF #liftTimer.Q THEN
+	            #prox_diptank_down := false;
+	            #liftTimer(IN := false,
+	                       PT := t#15s);
+	            #liftState := 3;
+	        ELSIF #diptank_down THEN
+	            #liftState := 1;
+	        END_IF;
+	        ;
+	    3:  // going up
+	        #liftTimer(IN := true,
+	                   PT := t#15s);
+	        IF #liftTimer.Q THEN
+	            #prox_diptank_up := true;
+	            #liftState := 4;
+	        ELSIF #diptank_down THEN
+	            #liftTimer(IN := false,
+	                       PT := t#8s);
+	            #liftState := 6;
+	        END_IF;
+	        ;
+	    4:  // up pos
+	        IF #diptank_down AND NOT #diptank_up THEN
+	            #liftTimer(IN := false,
+	                       PT := t#2s);
+	            #liftState := 5;
+	        END_IF;
+	        ;
+	    5:  // leaving up
+	        #liftTimer(IN := true,
+	                   PT := t#2s);
+	        IF #liftTimer.Q THEN
+	            #prox_diptank_up := false;
+	            #liftTimer(IN := false,
+	                       PT := t#8s);
+	            #liftState := 6;
+	        ELSIF #diptank_up THEN
+	            #liftState := 4;
+	        END_IF;
+	        ;
+	    6:  // going down
+	        #liftTimer(IN := true,
+	                   PT := t#8s);
+	        IF #liftTimer.Q THEN
+	            #prox_diptank_down := true;
+	            #liftState := 1;
+	        ELSIF #diptank_up THEN
+	            #liftTimer(IN := false,
+	                       PT := t#15s);
+	            #liftState := 3;
+	        END_IF;
+	        ;
+	    END_CASE;
+END_FUNCTION_BLOCK
+

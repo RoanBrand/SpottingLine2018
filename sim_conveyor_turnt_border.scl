@@ -1,0 +1,70 @@
+﻿FUNCTION_BLOCK "sim_conveyor_turnt_border"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      prev_m { ExternalVisible := 'False'} : Bool;
+      next_m { ExternalVisible := 'False'} : Bool;
+      invert_prev_sens : Bool;
+      invert_next_sens1 : Bool;
+      invert_next_sens2 : Bool;
+   END_VAR
+
+   VAR_IN_OUT 
+      prev_sens { ExternalVisible := 'False'} : Bool;
+      next_sens1 { ExternalVisible := 'False'} : Bool;
+      next_sens2 : Bool;
+   END_VAR
+
+   VAR 
+      state { ExternalVisible := 'False'} : Int;
+      ttimer {OriginalPartName := 'TON'; LibVersion := '1.0'; ExternalVisible := 'False'} : TON;
+   END_VAR
+
+
+BEGIN
+	CASE #state OF
+	    0:  // Waiting to send product to next.
+	        IF #prev_m AND #next_m
+	            AND (#prev_sens = NOT #invert_prev_sens)
+	            AND NOT (#next_sens1 = NOT #invert_next_sens1)
+	        THEN
+	            #ttimer(IN := false,
+	                    PT := t#4s);
+	            #state := 1;
+	        END_IF;
+	        ;
+	    1:  // Sending product to next.
+	        #ttimer(IN := true,
+	                PT := t#4s);
+	        
+	        IF #ttimer.Q THEN
+	            #prev_sens := #invert_prev_sens;
+	            #ttimer(IN := false,
+	                    PT := t#2s);
+	            #state := 2;
+	        ELSE
+	            IF NOT #prev_m
+	                OR NOT #next_m
+	            THEN
+	                #state := 0;
+	            END_IF;
+	        END_IF;
+	        ;
+	    2:  // Left previous, still to arrive at next.
+	        #ttimer(IN := true,
+	                PT := t#2s);
+	        
+	        IF #ttimer.Q THEN
+	            #next_sens1 := NOT #invert_next_sens1;
+	            #state := 0;
+	        ELSE
+	            IF NOT #next_m THEN
+	                #state := 0;
+	            END_IF;
+	        END_IF;
+	        ;
+	    ELSE  // Statement section ELSE
+	        ;
+	END_CASE;
+END_FUNCTION_BLOCK
+

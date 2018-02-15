@@ -1,0 +1,275 @@
+﻿FUNCTION_BLOCK "rollover"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      usrBtn_DHS { ExternalVisible := 'False'} : Bool;   // Dual-hand start button input. True to rotate rollover cage.
+      usrBtn_Dir { ExternalVisible := 'False'} : Bool;   // Direction toggle switch for rollover cage. True -> To 90. False -> To -90.
+      prox_pos_home { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Rollover cage in home position.
+      prox_pos_1 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Rollover cage in 90 degrees pos.
+      prox_pos_2 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Rollover cage in -90 degrees pos.
+      prdSens_obst1 : Bool;   // obstruction sensor near prev conv
+      prdSens_obst2 : Bool;   // obstruction sensor near next conv
+      eStop { ExternalVisible := 'False'} : Bool;   // Emergency stop button.
+      vsdReady_RO { ExternalVisible := 'False'} : Bool;   // Rollover Cage VSD Online and Ready. False -> In error state.
+      comms_from_prev_conv { ExternalVisible := 'False'} : Int;   // Communication input from previous conveyor in line.
+      comms_from_next_conv { ExternalVisible := 'False'} : Int;   // Communication input from next conveyor in line.
+   END_VAR
+
+   VAR_OUTPUT 
+      rollover_Fwd { ExternalVisible := 'False'} : Bool;   // True-> Rollover cage turning to pos1 (90)
+      rollover_Rev { ExternalVisible := 'False'} : Bool;   // True-> Rollover cage turning to pos2 (-90)
+      prd_clamp { ExternalVisible := 'False'} : Bool;   // Product top clamp activated if not in home pos.
+      statusLed { ExternalVisible := 'False'} : Bool;   // Light Indication to user.
+      comms_to_prev_conv { ExternalVisible := 'False'} : Int;   // Communication output to previous conveyor in line.
+      comms_to_next_conv { ExternalVisible := 'False'} : Int;   // Communication output to next conveyor in line.
+      alarms_out : Word;
+      alarms { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} AT alarms_out : Array[0..15] of Bool;
+   END_VAR
+
+   VAR 
+      state : Int;   // Conveyor state. 0->Startup; 1->ReadyToReceive; 2->Receiving; 3->ReadyToSend; 4->Sending; 5-> Error;
+      state_prev { ExternalVisible := 'False'} : Int;   // Previous conveyor state.
+      intState { ExternalVisible := 'False'} : Int;
+      hasPrd : Bool;
+      obstr1_prev { ExternalVisible := 'False'} : Bool;
+      prox_home_prev { ExternalVisible := 'False'} : Bool;
+      t_off {OriginalPartName := 'TOF'; LibVersion := '1.0'; ExternalVisible := 'False'} : TOF;
+      t_on {OriginalPartName := 'TON'; LibVersion := '1.0'; ExternalVisible := 'False'} : TON;
+   END_VAR
+
+   VAR CONSTANT 
+      s_startup : Int := 0;
+      s_ready_to_receive : Int := 1;
+      s_receiving : Int := 2;
+      s_ready_to_send : Int := 3;
+      s_sending : Int := 4;
+      s_reset : Int := 5;
+      s_turn_bot : Int := 6;
+      s_turn_top : Int := 7;
+      s_manual : Int := 10;
+      s_rollover_turning : Int := 20;
+      m_silent : Int := 0;   // Inter-conveyor message (To both) : No message
+      m_req_send : Int := 100;   // Inter-conveyor message (To next) : Request to send product
+      m_perm_send : Int := 101;   // Inter-conveyor message (To prev) : Permission to send product
+      m_sending : Int := 102;   // Inter-conveyor message (To next) : Currently  sending product
+      c_conveyor_timeout : Time := T#25S;   // Time to wait for product to arrive or leave the conveyor
+   END_VAR
+
+
+BEGIN
+	// Rollover cage conveyor.
+	// No conveyor rollers. Current product pushed out to next conveyor when receiving.
+	// Push Dual-handed start buttons to rotate product.
+	
+	IF #state <> #s_reset THEN
+	    // Handle EStop and VSD error and reset conveyor.
+	    IF (#eStop OR NOT #vsdReady_RO) THEN
+	        #state := #s_reset;
+	        // Check proximity sensors
+	    ELSIF (#prox_pos_1 AND (#prox_pos_2 OR #prox_pos_home)
+	        OR (#prox_pos_2 AND #prox_pos_home)) THEN
+	        #state := #s_reset;
+	    END_IF;
+	END_IF;
+	
+	// Rollover state machine.
+	CASE #state OF
+	    0:  // Startup
+	        IF #state_prev <> #state THEN
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        IF NOT #prox_pos_home THEN
+	            #state := #s_rollover_turning;
+	        ELSE
+	            #state := #s_ready_to_receive;
+	        END_IF;
+	        ;
+	    1:  // Ready to Receive
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := t#1s);
+	            #intState := 0;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        IF #usrBtn_DHS THEN
+	            #comms_to_prev_conv := #m_silent;
+	            #comms_to_next_conv := #m_silent;
+	            #state := #s_rollover_turning;
+	        ELSE
+	            CASE #intState OF
+	                0:  // wait for previous conveyor send request
+	                    IF #comms_from_prev_conv = #m_req_send THEN
+	                        #t_on(IN := false,
+	                              PT := t#1s);
+	                        IF #hasPrd THEN
+	                            #comms_to_next_conv := #m_req_send;
+	                            #intState := 1;
+	                        ELSE
+	                            #comms_to_prev_conv := #m_perm_send;
+	                            #intState := 2;
+	                        END_IF;
+	                    END_IF;
+	                    ;
+	                1:  // need to see if next conv empty
+	                    #t_on(IN := true,
+	                          PT := t#1s);
+	                    IF #t_on.Q THEN
+	                        #comms_to_next_conv := #m_silent;
+	                        #intState := 0;
+	                    ELSIF #comms_from_next_conv = #m_perm_send THEN
+	                        #comms_to_prev_conv := #m_perm_send;
+	                        #intState := 2;
+	                    END_IF;
+	                    ;
+	                2:  // give previous conveyor permission to send
+	                    #t_on(IN := true,
+	                          PT := t#1s);
+	                    IF #t_on.Q THEN
+	                        #comms_to_prev_conv := #m_silent;
+	                        #comms_to_next_conv := #m_silent;
+	                        #intState := 0;
+	                    ELSIF #comms_from_prev_conv = #m_sending THEN
+	                        IF #comms_from_next_conv = #m_perm_send THEN
+	                            #comms_to_next_conv := #m_sending;
+	                        END_IF;
+	                        #state := #s_receiving;
+	                    END_IF;
+	                    ;
+	            END_CASE;
+	        END_IF;
+	        ;
+	    2:  // Receiving
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := t#15s);
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #t_on(IN := true,
+	              PT := t#15s);
+	        
+	        // prd receive
+	        IF #t_on.Q OR (NOT #prdSens_obst1 AND #obstr1_prev) THEN
+	            #comms_to_prev_conv := #m_silent;
+	        END_IF;
+	        
+	        // send possible current product
+	        IF #prdSens_obst2 THEN
+	            #comms_to_next_conv := #m_req_send;
+	            IF #comms_from_next_conv = #m_perm_send THEN
+	                #comms_to_next_conv := #m_sending;
+	            END_IF;
+	        ELSE
+	            #comms_to_next_conv := #m_silent;
+	        END_IF;
+	        
+	        IF (#comms_to_prev_conv = #m_silent) AND (#comms_to_next_conv = #m_silent) THEN
+	            #hasPrd := true;
+	            #state := #s_ready_to_receive;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            ;
+	        END_IF;
+	        ;
+	    5:  // Reset
+	        IF #state_prev <> #state THEN
+	            #rollover_Fwd := false;
+	            #rollover_Rev := false;
+	            #statusLed := false;
+	            #comms_to_next_conv := 0;
+	            #comms_to_prev_conv := 0;
+	            #t_on(IN := false,
+	                  PT := t#2s);
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #t_on(IN := true,
+	              PT := t#2s);
+	        
+	        IF #t_on.Q THEN
+	            #alarms_out := 0;
+	        END_IF;
+	        
+	        #alarms[10] := NOT #vsdReady_RO AND NOT #eStop;
+	        #alarms[11] := (#prox_pos_1 AND (#prox_pos_2 OR #prox_pos_home) OR (#prox_pos_2 AND #prox_pos_home));
+	        
+	        IF #t_on.Q
+	            AND NOT (#eStop AND #vsdReady_RO)
+	            AND NOT (#prox_pos_1 AND (#prox_pos_2 OR #prox_pos_home) OR (#prox_pos_2 AND #prox_pos_home))
+	        THEN
+	            #alarms_out := 0;
+	            #state := #s_startup;
+	        END_IF;
+	        ;
+	    20: // Rollover turning
+	        IF #state_prev <> #state THEN
+	            #intState := 0;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        IF NOT #usrBtn_DHS AND #prox_pos_home THEN
+	            #state := #s_ready_to_receive;
+	        ELSE
+	            CASE #intState OF
+	                0:  // check if rollover cage secure
+	                    IF #prdSens_obst1 OR #prdSens_obst2 THEN
+	                        ;//alarm
+	                    ELSE
+	                        #prd_clamp := true;
+	                        IF #usrBtn_Dir THEN
+	                            #intState := 1;
+	                        ELSE
+	                            #intState := 3;
+	                        END_IF;
+	                    END_IF;
+	                    ;
+	                1:  // moving to 90
+	                    #rollover_Fwd := #usrBtn_DHS;
+	                    IF (#prox_pos_home AND NOT #prox_home_prev) OR #prox_pos_1 THEN
+	                        #rollover_Fwd := false;
+	                        #intState := 2;
+	                    END_IF;
+	                    IF NOT #usrBtn_Dir THEN
+	                        #intState := 3;
+	                    END_IF;
+	                    ;
+	                2:  // on 90
+	                    IF NOT #usrBtn_Dir THEN
+	                        #intState := 3;
+	                    END_IF;
+	                    ;
+	                3:  // moving to -90
+	                    #rollover_Rev := #usrBtn_DHS;
+	                    IF (#prox_pos_home AND NOT #prox_home_prev) OR #prox_pos_2 THEN
+	                        #rollover_Rev := false;
+	                        #intState := 4;
+	                    END_IF;
+	                    IF #usrBtn_Dir THEN
+	                        #intState := 1;
+	                    END_IF;
+	                    ;
+	                4:  // on -90
+	                    IF #usrBtn_Dir THEN
+	                        #intState := 1;
+	                    END_IF;
+	                    ;
+	            END_CASE;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            #prd_clamp := false;
+	            #rollover_Fwd := false;
+	            #rollover_Rev := false;
+	        END_IF;
+	        ;
+	END_CASE;
+	
+	// used for edge detection
+	#obstr1_prev := #prdSens_obst1;
+	#prox_home_prev := #prox_pos_home;
+	
+END_FUNCTION_BLOCK
+

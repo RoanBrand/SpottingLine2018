@@ -1,0 +1,557 @@
+﻿FUNCTION_BLOCK "diptank"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      usrBtn_Dip : Bool;
+      prox_rollover_pos_home { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Rollover cage in home position.
+      prox_rollover_pos_1 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Rollover cage in 90 degrees pos.
+      prox_rollover_pos_2 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Rollover cage in -90 degrees pos.
+      prox_diptank_up { ExternalVisible := 'False'} : Bool;   // Rollover cage out of oil.
+      prox_diptank_down { ExternalVisible := 'False'} : Bool;   // Rollover cage submerged in oil.
+      prdSens_obst1 : Bool;   // obstruction sensor near prev conv
+      prdSens_obst2 : Bool;   // obstruction sensor near next conv
+      eStop { ExternalVisible := 'False'} : Bool;   // Emergency stop button.
+      vsdReady_RO { ExternalVisible := 'False'} : Bool;   // Rollover Cage VSD Online and Ready. False -> In error state.
+      xManualMode : Bool;   // Manual mode request.
+      comms_from_prev_conv { ExternalVisible := 'False'} : Int;   // Communication input from previous conveyor in line.
+      comms_from_next_conv { ExternalVisible := 'False'} : Int;   // Communication input from next conveyor in line.
+      xOilTurns : Int := 1;   // Number of prd rotations while rollover cage is submerged in oil.
+      xAirTurns : Int := 1;   // Numbe of prd rotations after rollover cage has been lifted out of oil.
+   END_VAR
+
+   VAR_OUTPUT 
+      rollover_Fwd { ExternalVisible := 'False'} : Bool;   // True-> Rollover cage turning to pos1 (90)
+      rollover_Rev { ExternalVisible := 'False'} : Bool;   // True-> Rollover cage turning to pos2 (-90)
+      prd_clamp { ExternalVisible := 'False'} : Bool;   // Product top clamp activated if not in home pos.
+      diptank_up { ExternalVisible := 'False'} : Bool;   // Lift rollover cage out of oil into air.
+      diptank_down { ExternalVisible := 'False'} : Bool;   // Submerge rollover cage in oil.
+      statusLed { ExternalVisible := 'False'} : Bool;   // Light Indication to user.
+      comms_to_prev_conv { ExternalVisible := 'False'} : Int;   // Communication output to previous conveyor in line.
+      comms_to_next_conv { ExternalVisible := 'False'} : Int;   // Communication output to next conveyor in line.
+      alarms_out : Word;
+      alarms { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} AT alarms_out : Array[0..15] of Bool;
+   END_VAR
+
+   VAR 
+      state : Int;   // Conveyor state. 0->Startup; 1->ReadyToReceive; 2->Receiving; 3->ReadyToSend; 4->Sending; 5-> Error;
+      state_prev { ExternalVisible := 'False'} : Int;   // Previous conveyor state.
+      intState { ExternalVisible := 'False'} : Int;
+      cycle_oil_turns { ExternalVisible := 'False'} : Int;
+      cycle_air_turns { ExternalVisible := 'False'} : Int;
+      hasPrd : Bool;
+      obstr1_prev { ExternalVisible := 'False'} : Bool;
+      prox_home_prev { ExternalVisible := 'False'} : Bool;
+      t_off {OriginalPartName := 'TOF'; LibVersion := '1.0'; ExternalVisible := 'False'} : TOF;
+      t_on {OriginalPartName := 'TON'; LibVersion := '1.0'; ExternalVisible := 'False'} : TON;
+      m_diptank_up : Bool;
+      m_diptank_down : Bool;
+      m_turn_pos1 : Bool;
+      m_turn_pos2 : Bool;
+      m_clmp : Bool;
+   END_VAR
+
+   VAR CONSTANT 
+      s_startup : Int := 0;
+      s_ready_to_receive : Int := 1;
+      s_receiving : Int := 2;
+      s_ready_to_send : Int := 3;
+      s_sending : Int := 4;
+      s_reset : Int := 5;
+      s_turn_bot : Int := 6;
+      s_turn_top : Int := 7;
+      s_manual : Int := 10;
+      s_dipcycle : Int := 21;
+      m_silent : Int := 0;   // Inter-conveyor message (To both) : No message
+      m_req_send : Int := 100;   // Inter-conveyor message (To next) : Request to send product
+      m_perm_send : Int := 101;   // Inter-conveyor message (To prev) : Permission to send product
+      m_sending : Int := 102;   // Inter-conveyor message (To next) : Currently  sending product
+      c_conveyor_timeout : Time := T#60S;   // Time to wait for product to arrive or leave the conveyor
+   END_VAR
+
+
+BEGIN
+	// Diptank. Rotate product in oil and then rotate in air.
+	// No conveyor rollers. Current product pushed out to next conveyor when receiving.
+	// Push Dual-handed start buttons to rotate product.
+	
+	IF #state <> #s_reset THEN
+	    // Handle EStop and VSD error and reset conveyor.
+	    IF (#eStop OR NOT #vsdReady_RO) THEN
+	        #state := #s_reset;
+	        // Check proximity sensors
+	    ELSIF (#prox_rollover_pos_1 AND (#prox_rollover_pos_2 OR #prox_rollover_pos_home)
+	        OR (#prox_rollover_pos_2 AND #prox_rollover_pos_home)) THEN
+	        #state := #s_reset;
+	    ELSIF (#prox_diptank_down AND #prox_diptank_up) THEN
+	        #state := #s_reset;
+	    END_IF;
+	END_IF;
+	
+	// Rollover state machine.
+	CASE #state OF
+	    0:  // Startup
+	        IF #state_prev <> #state THEN
+	            #diptank_up := NOT #prox_diptank_up;
+	            #prd_clamp := NOT #prox_rollover_pos_home;
+	            #rollover_Fwd := NOT #prox_rollover_pos_home;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        IF #prox_rollover_pos_1 THEN
+	            #rollover_Fwd := false;
+	            #rollover_Rev := true;
+	        END_IF;
+	        IF #prox_rollover_pos_home THEN
+	            #rollover_Fwd := false;
+	            #rollover_Rev := false;
+	        END_IF;
+	        
+	        IF #prox_diptank_up AND #prox_rollover_pos_home THEN
+	            #state := #s_ready_to_receive;
+	        END_IF;
+	        
+	        IF #xManualMode THEN
+	            #state := #s_manual;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            #diptank_up := false;
+	            #prd_clamp := false;
+	            #rollover_Fwd := false;
+	            #rollover_Rev := false;
+	        END_IF;
+	        ;
+	    1:  // Ready to Receive
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := t#1s);
+	            #intState := 0;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        IF #usrBtn_Dip THEN
+	            #comms_to_prev_conv := #m_silent;
+	            #comms_to_next_conv := #m_silent;
+	            #state := #s_dipcycle;
+	        ELSIF #xManualMode THEN
+	            #comms_to_prev_conv := #m_silent;
+	            #comms_to_next_conv := #m_silent;
+	            #state := #s_manual;
+	        ELSE
+	            CASE #intState OF
+	                0:  // wait for previous conveyor send request
+	                    IF #comms_from_prev_conv = #m_req_send THEN
+	                        #t_on(IN := false,
+	                              PT := t#1s);
+	                        IF #hasPrd THEN
+	                            #comms_to_next_conv := #m_req_send;
+	                            #intState := 1;
+	                        ELSE
+	                            #comms_to_prev_conv := #m_perm_send;
+	                            #intState := 2;
+	                        END_IF;
+	                    END_IF;
+	                    ;
+	                1:  // need to see if next conv empty
+	                    #t_on(IN := true,
+	                          PT := t#1s);
+	                    IF #t_on.Q THEN
+	                        #comms_to_next_conv := #m_silent;
+	                        #intState := 0;
+	                    ELSIF #comms_from_next_conv = #m_perm_send THEN
+	                        #comms_to_prev_conv := #m_perm_send;
+	                        #intState := 2;
+	                    END_IF;
+	                    ;
+	                2:  // give previous conveyor permission to send
+	                    #t_on(IN := true,
+	                          PT := t#1s);
+	                    IF #t_on.Q THEN
+	                        #comms_to_prev_conv := #m_silent;
+	                        #comms_to_next_conv := #m_silent;
+	                        #intState := 0;
+	                    ELSIF #comms_from_prev_conv = #m_sending THEN
+	                        IF #comms_from_next_conv = #m_perm_send THEN
+	                            #comms_to_next_conv := #m_sending;
+	                        END_IF;
+	                        #state := #s_receiving;
+	                    END_IF;
+	                    ;
+	            END_CASE;
+	        END_IF;
+	        ;
+	    2:  // Receiving
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := t#15s);
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #t_on(IN := true,
+	              PT := t#15s);
+	        
+	        // prd receive
+	        IF #t_on.Q OR (NOT #prdSens_obst1 AND #obstr1_prev) THEN
+	            #comms_to_prev_conv := #m_silent;
+	        END_IF;
+	        
+	        // send possible current product
+	        IF #prdSens_obst2 THEN
+	            #comms_to_next_conv := #m_req_send;
+	            IF #comms_from_next_conv = #m_perm_send THEN
+	                #comms_to_next_conv := #m_sending;
+	            END_IF;
+	        ELSE
+	            #comms_to_next_conv := #m_silent;
+	        END_IF;
+	        
+	        IF (#comms_to_prev_conv = #m_silent) AND (#comms_to_next_conv = #m_silent) THEN
+	            #hasPrd := true;
+	            #state := #s_ready_to_receive;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            ;
+	        END_IF;
+	        ;
+	    5:  // Reset
+	        IF #state_prev <> #state THEN
+	            #rollover_Fwd := false;
+	            #rollover_Rev := false;
+	            #diptank_down := false;
+	            #diptank_up := false;
+	            #statusLed := false;
+	            #comms_to_next_conv := 0;
+	            #comms_to_prev_conv := 0;
+	            #t_on(IN := false,
+	                  PT := t#2s);
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #t_on(IN := true,
+	              PT := t#2s);
+	        
+	        IF #t_on.Q THEN
+	            #alarms_out := 0;
+	        END_IF;
+	        
+	        #alarms[10] := NOT #vsdReady_RO AND NOT #eStop;
+	        #alarms[11] := (#prox_rollover_pos_1 AND (#prox_rollover_pos_2 OR #prox_rollover_pos_home) OR (#prox_rollover_pos_2 AND #prox_rollover_pos_home));
+	        #alarms[12] := (#prox_diptank_down AND #prox_diptank_up);
+	        
+	        IF #t_on.Q
+	            AND NOT #eStop AND #vsdReady_RO
+	            AND NOT (#prox_rollover_pos_1 AND (#prox_rollover_pos_2 OR #prox_rollover_pos_home) OR (#prox_rollover_pos_2 AND #prox_rollover_pos_home))
+	            AND NOT (#prox_diptank_down AND #prox_diptank_up)
+	        THEN
+	            #alarms_out := 0;
+	            #state := #s_startup;
+	        END_IF;
+	        ;
+	    10:  // Manual Mode
+	        IF #state_prev <> #state THEN
+	            #m_diptank_down := false;
+	            #m_diptank_up := false;
+	            #m_turn_pos1 := false;
+	            #m_turn_pos2 := false;
+	            #m_clmp := false;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        // Diptank
+	        IF #m_diptank_down THEN
+	            #m_diptank_up := false;
+	            IF #prox_rollover_pos_home THEN
+	                #diptank_up := false;
+	                #diptank_down := true;
+	            END_IF;
+	            
+	            IF #prox_diptank_down THEN
+	                #m_diptank_down := false;
+	                #diptank_down := false;
+	            END_IF;
+	        END_IF;
+	        
+	        IF #m_diptank_up THEN
+	            #m_diptank_down := false;
+	            IF #prox_rollover_pos_home THEN
+	                #diptank_down := false;
+	                #diptank_up := true;
+	            END_IF;
+	            
+	            IF #prox_diptank_up THEN
+	                #m_diptank_up := false;
+	                #diptank_up := false;
+	            END_IF;
+	        END_IF;
+	        
+	        // Rollover cage
+	        IF #m_turn_pos1 THEN
+	            #m_turn_pos2 := false;
+	            IF #prox_diptank_down OR #prox_diptank_up THEN
+	                #rollover_Rev := false;
+	                #rollover_Fwd := true;
+	            END_IF;
+	            
+	            IF #prox_rollover_pos_1 OR (#prox_rollover_pos_home AND NOT #prox_home_prev) THEN
+	                #m_turn_pos1 := false;
+	                #rollover_Fwd := false;
+	            END_IF;
+	        END_IF;
+	        
+	        IF #m_turn_pos2 THEN
+	            #m_turn_pos1 := false;
+	            IF #prox_diptank_down OR #prox_diptank_up THEN
+	                #rollover_Fwd := false;
+	                #rollover_Rev := true;
+	            END_IF;
+	            
+	            IF #prox_rollover_pos_2 OR (#prox_rollover_pos_home AND NOT #prox_home_prev) THEN
+	                #m_turn_pos2 := false;
+	                #rollover_Rev := false;
+	            END_IF;
+	        END_IF;
+	        
+	        // Product clamp
+	        #prd_clamp := #m_clmp;
+	        
+	        IF NOT #xManualMode THEN
+	            #state := #s_reset;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            #rollover_Fwd := false;
+	            #rollover_Rev := false;
+	            #diptank_down := false;
+	            #diptank_up := false;
+	            #prd_clamp := false;
+	            
+	            #m_diptank_down := false;
+	            #m_diptank_up := false;
+	            #m_turn_pos1 := false;
+	            #m_turn_pos2 := false;
+	            #m_clmp := false;
+	        END_IF;
+	        ;
+	    21: // Dipcycle
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := t#2s);
+	            #intState := 0;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        CASE #intState OF
+	            0:  // Wait for diptank to be secure
+	                IF #prdSens_obst1 OR #prdSens_obst2 THEN
+	                    #alarms[13] := true;
+	                    #t_on(IN := true,
+	                          PT := t#2s);
+	                    IF #t_on.Q THEN
+	                        #state := #s_ready_to_receive;
+	                    END_IF;
+	                ELSE
+	                    #prd_clamp := true;
+	                    #diptank_down := true;
+	                    #t_on(IN := false,
+	                          PT := t#35s);
+	                    #intState := 1;
+	                END_IF;
+	                ;
+	            1:  // Wait for prd to be submerged then start rotation
+	                #t_on(IN := true,
+	                      PT := t#35s);
+	                IF #t_on.Q THEN
+	                    #t_on(IN := false,
+	                          PT := t#60s);
+	                    #intState := 10;
+	                ELSIF #prox_diptank_down THEN
+	                    #diptank_down := false;
+	                    #rollover_Fwd := true;
+	                    #cycle_oil_turns := #xOilTurns;
+	                    #t_on(IN := false,
+	                          PT := t#35s);
+	                    #intState := 2;
+	                END_IF;
+	                ;
+	            2:  // Under: Rotate 1
+	                #t_on(IN := true,
+	                      PT := t#35s);
+	                IF #t_on.Q THEN
+	                    #t_on(IN := false,
+	                          PT := t#60s);
+	                    #intState := 10;
+	                ELSIF #prox_rollover_pos_1 THEN
+	                    #rollover_Fwd := false;
+	                    #rollover_Rev := true;
+	                    #t_on(IN := false,
+	                          PT := t#35s);
+	                    #intState := 3;
+	                END_IF;
+	                ;
+	            3:  // Under: Rotate 2
+	                #t_on(IN := true,
+	                      PT := t#35s);
+	                IF #t_on.Q THEN
+	                    #t_on(IN := false,
+	                          PT := t#60s);
+	                    #intState := 10;
+	                ELSIF #prox_rollover_pos_2 THEN
+	                    #rollover_Rev := false;
+	                    #rollover_Fwd := true;
+	                    #cycle_oil_turns := #cycle_oil_turns - 1;
+	                    #t_on(IN := false,
+	                          PT := t#35s);
+	                    #intState := 4;
+	                END_IF;
+	                ;
+	            4:  // Under: Rotate to home
+	                #t_on(IN := true,
+	                      PT := t#35s);
+	                IF #t_on.Q THEN
+	                    #t_on(IN := false,
+	                          PT := t#60s);
+	                    #intState := 10;
+	                ELSIF #prox_rollover_pos_home THEN
+	                    #t_on(IN := false,
+	                          PT := t#35s);
+	                    IF #cycle_oil_turns <= 0 THEN
+	                        #rollover_Fwd := false;
+	                        #diptank_up := true;
+	                        #intState := 5;
+	                    ELSE
+	                        #intState := 2;
+	                    END_IF;
+	                END_IF;
+	                ;
+	            5:  // Wait for prd to be lifted then start 2nd rotation
+	                #t_on(IN := true,
+	                      PT := t#35s);
+	                IF #t_on.Q THEN
+	                    #t_on(IN := false,
+	                          PT := t#60s);
+	                    #intState := 10;
+	                ELSIF #prox_diptank_up THEN
+	                    #diptank_up := false;
+	                    #rollover_Fwd := true;
+	                    #cycle_air_turns := #xAirTurns;
+	                    #t_on(IN := false,
+	                          PT := t#35s);
+	                    #intState := 6;
+	                END_IF;
+	                ;
+	            6:  // Above: Rotate 1
+	                #t_on(IN := true,
+	                      PT := t#35s);
+	                IF #t_on.Q THEN
+	                    #t_on(IN := false,
+	                          PT := t#60s);
+	                    #intState := 10;
+	                ELSIF #prox_rollover_pos_1 THEN
+	                    #rollover_Fwd := false;
+	                    #rollover_Rev := true;
+	                    #t_on(IN := false,
+	                          PT := t#35s);
+	                    #intState := 7;
+	                END_IF;
+	                ;
+	            7:  // Above: Rotate 2
+	                #t_on(IN := true,
+	                      PT := t#35s);
+	                IF #t_on.Q THEN
+	                    #t_on(IN := false,
+	                          PT := t#60s);
+	                    #intState := 10;
+	                ELSIF #prox_rollover_pos_2 THEN
+	                    #rollover_Rev := false;
+	                    #rollover_Fwd := true;
+	                    #cycle_air_turns := #cycle_air_turns - 1;
+	                    #t_on(IN := false,
+	                          PT := t#35s);
+	                    #intState := 8;
+	                END_IF;
+	                ;
+	            8:  // Above: Rotate to home
+	                #t_on(IN := true,
+	                      PT := t#35s);
+	                IF #t_on.Q THEN
+	                    #t_on(IN := false,
+	                          PT := t#60s);
+	                    #intState := 10;
+	                ELSIF #prox_rollover_pos_home THEN
+	                    IF #cycle_air_turns <= 0 THEN
+	                        #rollover_Fwd := false;
+	                        #state := #s_ready_to_receive;
+	                    ELSE
+	                        #t_on(IN := false,
+	                              PT := t#35s);
+	                        #intState := 6;
+	                    END_IF;
+	                END_IF;
+	                ;
+	            10: // Timeout - Rotate cage to home pos
+	                #alarms[14] := true;
+	                #t_on(IN := true,
+	                      PT := t#60s);
+	                
+	                IF NOT #prox_rollover_pos_home AND NOT (#rollover_Fwd OR #rollover_Rev) THEN
+	                    #rollover_Fwd := true;
+	                    #rollover_Rev := false;
+	                END_IF;
+	                
+	                IF #prox_rollover_pos_1 THEN
+	                    #rollover_Fwd := false;
+	                    #rollover_Rev := true;
+	                END_IF;
+	                
+	                IF #prox_rollover_pos_2 THEN
+	                    #rollover_Fwd := true;
+	                    #rollover_Rev := false;
+	                END_IF;
+	                
+	                IF #t_on.Q THEN
+	                    #intState := 12;
+	                ELSIF #prox_rollover_pos_home THEN
+	                    #rollover_Fwd := false;
+	                    #rollover_Rev := false;
+	                    #intState := 11;
+	                END_IF;
+	                ;
+	            11: // Timout - Lift diptank up to conveyors
+	                #t_on(IN := true,
+	                      PT := t#60s);
+	                
+	                #diptank_up := NOT #prox_diptank_up;
+	                IF #t_on.Q THEN
+	                    #intState := 12;
+	                ELSIF #prox_diptank_up THEN
+	                    #state := #s_ready_to_receive;
+	                END_IF;
+	                ;
+	            12: // Recovery timeout after operational timeout
+	                #alarms[15] := true;
+	                #t_on(IN := true,
+	                      PT := t#2s);
+	                IF #t_on.Q THEN
+	                    #state := #s_reset;
+	                END_IF;
+	                ;
+	        END_CASE;
+	        
+	        IF #state_prev <> #state THEN
+	            #prd_clamp := false;
+	            #diptank_down := false;
+	            #diptank_up := false;
+	            #rollover_Fwd := false;
+	            #rollover_Rev := false;
+	            #alarms_out := 0;
+	        END_IF;
+	        ;
+	END_CASE;
+	
+	// used for edge detection
+	#obstr1_prev := #prdSens_obst1;
+	#prox_home_prev := #prox_rollover_pos_home;
+	
+END_FUNCTION_BLOCK
+

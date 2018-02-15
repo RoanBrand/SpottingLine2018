@@ -1,0 +1,482 @@
+﻿FUNCTION_BLOCK "turnTable90"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      usrBtn_Prd { ExternalVisible := 'False'} : Bool;   // User Button. Press (True) to initiate product send.
+      usrBtn_DHS { ExternalVisible := 'False'} : Bool;   // Dual-hand start button input. True to rotate rollover cage.
+      prdSens : Bool;   // Product Sensor near front. True-> Product present. (received rollers fwd)
+      prdSens2 : Bool;   // Product Sensor near back. True-> Product present. (received rollers rev)
+      prox_pos_0 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Table aligned with position 1 & 2.
+      prox_slow_0 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Table nearly aligned with 1 & 2. Slow down.
+      prox_pos_90 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Table aligned with position 3 & 4.
+      prox_slow_90 { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Table nearly aligned with 3 & 4. Slow down.
+      eStop { ExternalVisible := 'False'} : Bool;   // Emergency stop button.
+      vsdReady { ExternalVisible := 'False'} : Bool;   // Rollers VSD Online and Ready. False-> Conveyor VSD off or in Error State.
+      vsdReady_TT { ExternalVisible := 'False'} : Bool;   // TurntTable VSD Online and Ready. False-> TT VSD off or in Error State.
+      xManualMode : Bool;   // Manual mode request.
+      comms_from_1 { ExternalVisible := 'False'} : Int;   // Communication input from previous conveyor in line. (pos 1)
+      comms_from_2 { ExternalVisible := 'False'} : Int;   // Communication input from next conveyor in line. (pos 2)
+      comms_from_3 { ExternalVisible := 'False'} : Int;   // Comms from conveyor @ pos 3.
+      comms_from_4 { ExternalVisible := 'False'} : Int;   // Comms from conveyor @ pos 4.
+      prd_in1 { ExternalVisible := 'False'} : "Product";
+      prd_in2 { ExternalVisible := 'False'} : "Product";
+      xOutDir { ExternalVisible := 'False'} : Bool;   // Option: True-> Prd is sent to pos 4. False-> To 3. (default)
+      xPrdDirection90 { ExternalVisible := 'False'} : Bool;   // Option: True-> TT turns clockwise 90deg (Send prd to 4 in same direction as received from 1 and to 3 in reverse. False-> Turns anti-clockwise. (default)
+      xAutoMode { ExternalVisible := 'False'} : Bool;   // Option: True-> TT operates automatically without user and DHS.
+   END_VAR
+
+   VAR_OUTPUT 
+      rollersFwd { ExternalVisible := 'False'} : Bool;   // True-> Conveyor belt on. Product moving forward.
+      rollersRev { ExternalVisible := 'False'} : Bool;   // True-> Conveyor belt on. Product moving in reverse.
+      turnTableCW { ExternalVisible := 'False'} : Bool;   // True-> Turn table turning clockwise.
+      turnTableACW { ExternalVisible := 'False'} : Bool;   // True-> Turn table turning anti-clockwise.
+      turnTableFast { ExternalVisible := 'False'} : Bool;   // True-> Turn table turning fast speed. False-> Slow.
+      statusLed { ExternalVisible := 'False'} : Bool;   // Light Indication to user.
+      comms_to_1 { ExternalVisible := 'False'} : Int;   // Communication output to previous conveyor in line. (pos 1)
+      comms_to_2 { ExternalVisible := 'False'} : Int;   // Communication output to next conveyor in line. (pos 2)
+      comms_to_3 { ExternalVisible := 'False'} : Int;   // Comms out to conveyor @ pos 3.
+      comms_to_4 { ExternalVisible := 'False'} : Int;   // Comms out to conveyor @ pos 4.
+      prd_out3 { ExternalVisible := 'False'} : "Product";
+      prd_out4 { ExternalVisible := 'False'} : "Product";
+      alarms_out : Word;
+      alarms { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} AT alarms_out : Array[0..15] of Bool;
+   END_VAR
+
+   VAR 
+      state : Int;   // Conveyor state. 0->Startup; 1->ReadyToReceive; 2->Receiving; 3->ReadyToSend; 4->Sending; 5-> Error;
+      state_prev { ExternalVisible := 'False'} : Int;   // Previous conveyor state.
+      intState { ExternalVisible := 'False'} : Int;   // Internal state for nested state machine.
+      prd : "Product";
+      receiveFail { ExternalVisible := 'False'} : Int;   // 0: No Fail; 1: fail rx from pos1; 2: fail rx from pos2
+      sendFail { ExternalVisible := 'False'} : Int;   // 0: No Fail; 1: fail tx fwd (ps1); 2: fail tx rev (ps2)
+      t_off {OriginalPartName := 'TOF'; LibVersion := '1.0'; ExternalVisible := 'False'} : TOF;
+      t_on {OriginalPartName := 'TON'; LibVersion := '1.0'; ExternalVisible := 'False'} : TON;
+      m_rollersFwd : Bool;   // Manual rollers motor forward request.
+      m_rollersRev : Bool;
+      m_turn_cw : Bool;
+      m_turn_acw : Bool;
+   END_VAR
+
+   VAR CONSTANT 
+      s_startup : Int := 0;
+      s_ready_to_receive : Int := 1;
+      s_receiving : Int := 2;
+      s_ready_to_send : Int := 3;
+      s_sending : Int := 4;
+      s_reset : Int := 5;
+      s_turn_0 : Int := 8;
+      s_turn_90 : Int := 9;
+      s_manual : Int := 10;
+      m_silent : Int := 0;   // Inter-conveyor message (To both) : No message
+      m_req_send : Int := 100;   // Inter-conveyor message (To next) : Request to send product
+      m_perm_send : Int := 101;   // Inter-conveyor message (To prev) : Permission to send product
+      m_sending : Int := 102;   // Inter-conveyor message (To next) : Currently  sending product
+      c_conveyor_timeout : Time := T#25S;   // Time to wait for product to arrive or leave the conveyor
+   END_VAR
+
+
+BEGIN
+	// 90 degree turning conveyor.
+	//     2    ^
+	//  3 PRD 4 |
+	//     1    ^
+	//
+	// Limits:
+	// Since table can only turn 90 degrees,
+	// the product can only be sent in the same orientation to 2
+	// as it was received from 1, and vice versa. The same is true
+	// for when the turntable is aligned with pos 3 & 4.
+	//
+	// The table can only receive products from pos 1 & 2 for now.
+	// The table can only send products to one direction at a time, either 3 or 4. (xPrdDirection)
+	
+	IF #state <> #s_reset THEN
+	    // Handle EStop and VSD error and reset conveyor.
+	    IF (#eStop OR NOT (#vsdReady AND #vsdReady_TT)) THEN
+	        #state := #s_reset;
+	        // Check proximity sensors
+	    ELSIF (#prox_pos_0 OR #prox_slow_0) AND (#prox_pos_90 OR #prox_slow_90) THEN
+	        #state := #s_reset;
+	    END_IF;
+	END_IF;
+	
+	// Conveyor state machine.
+	CASE #state OF
+	    0:  // Startup
+	        IF #state_prev <> #state THEN
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        IF #receiveFail <> 0 THEN
+	            #state := #s_ready_to_receive;
+	        ELSIF #sendFail <> 0 THEN
+	            IF (#prdSens OR #prdSens2) THEN
+	                #state := #s_ready_to_send;
+	            ELSE
+	                #state := #s_turn_0;
+	            END_IF;
+	        ELSIF (#prdSens OR #prdSens2) THEN
+	            IF #prox_pos_90 THEN
+	                #state := #s_ready_to_send;
+	            ELSE
+	                #state := #s_turn_90;
+	            END_IF;
+	        ELSE
+	            IF #prox_pos_0 THEN
+	                #state := #s_ready_to_receive;
+	            ELSE
+	                #state := #s_turn_0;
+	            END_IF;
+	        END_IF;
+	        ;
+	    1:  // Ready to Receive
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := t#1s);
+	            #intState := 0;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        IF #xManualMode THEN
+	            #comms_to_1 := #m_silent;
+	            #comms_to_2 := #m_silent;
+	            #state := #s_manual;
+	        ELSE
+	            CASE #intState OF
+	                0:  // Wait for 1 or 2 to request to send a product.
+	                    IF #comms_from_1 = #m_req_send THEN
+	                        #comms_to_1 := #m_perm_send;
+	                        #t_on(IN := false,
+	                              PT := t#1s);
+	                        #intState := 1;
+	                    ELSIF #comms_from_2 = #m_req_send THEN
+	                        #comms_to_2 := #m_perm_send;
+	                        #t_on(IN := false,
+	                              PT := t#1s);
+	                        #intState := 1;
+	                    END_IF;
+	                    ;
+	                1:  // Give permission to sending conveyor.
+	                    #t_on(IN := true,
+	                          PT := t#1s);
+	                    IF #t_on.Q THEN
+	                        #comms_to_1 := #m_silent;
+	                        #comms_to_2 := #m_silent;
+	                        #intState := 0;
+	                    ELSE
+	                        IF (#comms_from_1 = #m_sending AND #comms_to_1 = #m_perm_send) OR
+	                            (#comms_from_2 = #m_sending AND #comms_to_2 = #m_perm_send) THEN
+	                            #state := #s_receiving;
+	                        END_IF;
+	                    END_IF;
+	                    ;
+	            END_CASE;
+	        END_IF;
+	        ;
+	    2:  // Receiving
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := #c_conveyor_timeout);
+	            IF #comms_from_1 = #m_sending THEN
+	                #prd := #prd_in1;
+	                #rollersFwd := true;
+	            ELSIF #comms_from_2 = #m_sending THEN
+	                #prd := #prd_in2;
+	                #rollersRev := true;
+	            END_IF;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #t_on(IN := true,
+	              PT := #c_conveyor_timeout);
+	        
+	        IF (#prdSens AND #comms_from_1 = #m_sending)
+	            OR (#prdSens2 AND #comms_from_2 = #m_sending) THEN
+	            #receiveFail := 0;
+	            #state := #s_turn_90;
+	        ELSE
+	            IF #t_on.Q THEN
+	                // Timeout error - Product did not arrive in time.
+	                #alarms[0] := true;
+	                IF #rollersFwd THEN
+	                    #receiveFail := 1;
+	                ELSE
+	                    #receiveFail := 2;
+	                END_IF;
+	                #state := #s_reset;
+	            END_IF;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            #comms_to_1 := #m_silent;
+	            #comms_to_2 := #m_silent;
+	            #rollersFwd := false;
+	            #rollersRev := false;
+	        END_IF;
+	        ;
+	    3:  // Ready to Send
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := t#1s);
+	            #intState := 0;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        IF NOT (#prdSens OR #prdSens2) THEN
+	            // Product mysteriously dissapeared.
+	            #comms_to_3 := #m_silent;
+	            #comms_to_4 := #m_silent;
+	            #alarms[2] := true;
+	            #state := #s_reset;
+	        ELSIF #xManualMode THEN
+	            #comms_to_3 := #m_silent;
+	            #comms_to_4 := #m_silent;
+	            #state := #s_manual;
+	        ELSE
+	            CASE #intState OF
+	                0:  // Wait for 1 or 2 to request to send a product.
+	                    IF #usrBtn_Prd OR #xAutoMode THEN
+	                        IF #xOutDir THEN
+	                            #comms_to_4 := #m_req_send;
+	                        ELSE
+	                            #comms_to_3 := #m_req_send;
+	                        END_IF;
+	                        #t_on(IN := false,
+	                              PT := t#1s);
+	                        #intState := 1;
+	                    END_IF;
+	                    ;
+	                1:  // Give permission to sending conveyor.
+	                    #t_on(IN := true,
+	                          PT := t#1s);
+	                    IF #t_on.Q THEN
+	                        #comms_to_3 := #m_silent;
+	                        #comms_to_4 := #m_silent;
+	                        #intState := 0;
+	                    ELSE
+	                        IF (#comms_from_3 = #m_perm_send AND #comms_to_3 = #m_req_send) THEN
+	                            #state := #s_sending;
+	                        ELSIF (#comms_from_4 = #m_perm_send AND #comms_to_4 = #m_req_send) THEN
+	                            #state := #s_sending;
+	                        END_IF;
+	                    END_IF;
+	                    ;
+	            END_CASE;
+	        END_IF;
+	        ;
+	    4:  // Sending
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := #c_conveyor_timeout);
+	            IF #xPrdDirection90 = #xOutDir THEN
+	                #rollersFwd := true;
+	            ELSE
+	                #rollersRev := true;
+	            END_IF;
+	            IF #xOutDir THEN
+	                #prd_out4 := #prd;
+	                #comms_to_4 := #m_sending;
+	            ELSE
+	                #prd_out3 := #prd;
+	                #comms_to_3 := #m_sending;
+	            END_IF;
+	            #intState := 0;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #t_on(IN := true,
+	              PT := #c_conveyor_timeout);
+	        
+	        CASE #intState OF
+	            0:  // Wait for product to reach last sensor.
+	                IF (#rollersFwd AND #prdSens) OR (#rollersRev AND #prdSens2) THEN
+	                    #intState := 1;
+	                END_IF;
+	                ;
+	            1:  // Handle product send.
+	                IF #rollersFwd THEN
+	                    IF NOT #prdSens THEN
+	                        IF (#xOutDir AND (#comms_from_4 <> #m_perm_send))
+	                            OR (NOT #xOutDir AND (#comms_from_3 <> #m_perm_send)) THEN
+	                            #sendFail := 0;
+	                            #state := #s_turn_0;
+	                        END_IF;
+	                    END_IF;
+	                ELSE
+	                    IF NOT #prdSens2 THEN
+	                        IF (#xOutDir AND (#comms_from_4 <> #m_perm_send))
+	                            OR (NOT #xOutDir AND (#comms_from_3 <> #m_perm_send)) THEN
+	                            #sendFail := 0;
+	                            #state := #s_turn_0;
+	                        END_IF;
+	                    END_IF;
+	                END_IF;
+	                ;
+	        END_CASE;
+	        
+	        IF #t_on.Q THEN
+	            // Timeout error - Product did not leave in time.
+	            #alarms[1] := true;
+	            IF #rollersFwd THEN
+	                #sendFail := 1;
+	            ELSE
+	                #sendFail := 2;
+	            END_IF;
+	            #state := #s_reset;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            #rollersFwd := false;
+	            #rollersRev := false;
+	            #comms_to_3 := #m_silent;
+	            #comms_to_4 := #m_silent;
+	        END_IF;
+	        ;
+	    5:  // Reset
+	        IF #state_prev <> #state THEN
+	            #rollersFwd := false;
+	            #rollersRev := false;
+	            #turnTableACW := false;
+	            #turnTableCW := false;
+	            #statusLed := false;
+	            #comms_to_2 := 0;
+	            #comms_to_1 := 0;
+	            #t_on(IN := false,
+	                  PT := t#2s);
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #t_on(IN := true,
+	              PT := t#2s);
+	        
+	        IF #t_on.Q THEN
+	            #alarms_out := 0;
+	        END_IF;
+	        
+	        #alarms[8] := NOT #vsdReady AND NOT #eStop;
+	        #alarms[9] := NOT #vsdReady_TT AND NOT #eStop;
+	        #alarms[10] := (#prox_pos_0 OR #prox_slow_0) AND (#prox_pos_90 OR #prox_slow_90);
+	        
+	        IF #t_on.Q
+	            AND NOT #eStop
+	            AND #vsdReady
+	            AND #vsdReady_TT
+	            AND NOT ((#prox_pos_0 OR #prox_slow_0) AND (#prox_pos_90 OR #prox_slow_90))
+	        THEN
+	            #alarms_out := 0;
+	            #state := #s_startup;
+	        END_IF;
+	        ;
+	    8:  // Turning table to align with 1 & 2.
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := #c_conveyor_timeout);
+	            IF #xPrdDirection90 THEN
+	                #turnTableACW := true;
+	            ELSE
+	                #turnTableCW := true;
+	            END_IF;
+	            #turnTableFast := true;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #t_on(IN := true,
+	              PT := #c_conveyor_timeout);
+	        
+	        IF #prox_slow_0 THEN
+	            #turnTableFast := false;
+	        END_IF;
+	        
+	        IF #t_on.Q THEN
+	            #alarms[2] := true;
+	            #state := #s_reset;
+	        ELSIF #prox_pos_0 THEN
+	            #state := #s_ready_to_receive;
+	        ELSIF #xManualMode THEN
+	            #state := #s_manual;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            #turnTableCW := false;
+	            #turnTableACW := false;
+	            #turnTableFast := false;
+	        END_IF;
+	        ;
+	    9:  // Turning table to align with 3 & 4.
+	        IF #state_prev <> #state THEN
+	            #t_on(IN := false,
+	                  PT := #c_conveyor_timeout);
+	            IF #xPrdDirection90 THEN
+	                #turnTableCW := true;
+	            ELSE
+	                #turnTableACW := true;
+	            END_IF;
+	            #turnTableFast := true;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #t_on(IN := true,
+	              PT := #c_conveyor_timeout);
+	        
+	        IF #prox_slow_90 THEN
+	            #turnTableFast := false;
+	        END_IF;
+	        
+	        IF #t_on.Q THEN
+	            #alarms[3] := true;
+	            #state := #s_reset;
+	        ELSIF #prox_pos_90 THEN
+	            #state := #s_ready_to_send;
+	        ELSIF #xManualMode THEN
+	            #state := #s_manual;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            #turnTableCW := false;
+	            #turnTableACW := false;
+	            #turnTableFast := false;
+	        END_IF;
+	        ;
+	    10:  // Manual Mode
+	        IF #state_prev <> #state THEN
+	            #m_rollersFwd := false;
+	            #m_rollersRev := false;
+	            #m_turn_acw := false;
+	            #m_turn_cw := false;
+	            #state_prev := #state;
+	        END_IF;
+	        
+	        #rollersFwd := #m_rollersFwd;
+	        #rollersRev := #m_rollersRev;
+	        
+	        #turnTableCW := #m_turn_cw
+	        AND NOT ((#xPrdDirection90 AND #prox_pos_90)
+	        OR (NOT #xPrdDirection90 AND #prox_pos_0));
+	        
+	        #turnTableACW := #m_turn_acw
+	        AND NOT ((#xPrdDirection90 AND #prox_pos_0) OR
+	        (NOT #xPrdDirection90 AND #prox_pos_90));
+	        
+	        #turnTableFast := NOT (#prox_slow_0 OR #prox_slow_90);
+	        
+	        IF NOT #xManualMode THEN
+	            #state := #s_reset;
+	        END_IF;
+	        
+	        IF #state_prev <> #state THEN
+	            #rollersFwd := false;
+	            #rollersRev := false;
+	            #turnTableACW := false;
+	            #turnTableCW := false;
+	            #turnTableFast := false;
+	            
+	            #m_rollersFwd := false;
+	            #m_rollersRev := false;
+	            #m_turn_acw := false;
+	            #m_turn_cw := false;
+	        END_IF;
+	        ;
+	END_CASE;
+	
+END_FUNCTION_BLOCK
+

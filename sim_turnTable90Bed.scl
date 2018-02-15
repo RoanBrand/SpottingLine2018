@@ -1,0 +1,150 @@
+﻿FUNCTION_BLOCK "sim_turnTable90Bed"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      turnCW { ExternalVisible := 'False'} : Bool;
+      turnACW { ExternalVisible := 'False'} : Bool;
+   END_VAR
+
+   VAR_OUTPUT 
+      pos0 { ExternalVisible := 'False'} : Bool;
+      pos0_slow { ExternalVisible := 'False'} : Bool;
+      pos90 { ExternalVisible := 'False'} : Bool;
+      pos90_slow { ExternalVisible := 'False'} : Bool;
+   END_VAR
+
+   VAR 
+      state : Int;
+      ttimer {OriginalPartName := 'TON'; LibVersion := '1.0'} : TON;
+      startup : Bool;
+   END_VAR
+
+
+BEGIN
+	// Startup
+	IF NOT #startup THEN
+	    #pos0 := true;
+	    #pos0_slow := true;
+	    #ttimer(IN := false,
+	            PT := t#1s);
+	    
+	    #startup := true;
+	END_IF;
+	
+	// Turntable state
+	CASE #state OF
+	    0:  // pos 0 and leaving slow
+	        #ttimer(IN := #turnCW AND NOT #turnACW,
+	                PT := t#1s);
+	        
+	        IF #ttimer.Q THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #pos0 := false;
+	            #state := 1;
+	        END_IF;
+	        ;
+	    1:  // leaving pos 0 slow
+	        #ttimer(IN := #turnCW,
+	                PT := t#1s);
+	        
+	        IF #ttimer.Q THEN
+	            #ttimer(IN := false,
+	                    PT := t#3s);
+	            #pos0_slow := false;
+	            #state := 2;
+	        ELSIF #turnACW THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #state := 7;
+	        END_IF;
+	        ;
+	    2:  // on the way to pos 90
+	        #ttimer(IN := #turnCW,
+	                PT := t#3s);
+	        
+	        IF #ttimer.Q THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #pos90_slow := true;
+	            #state := 3;
+	        ELSIF #turnACW THEN
+	            #ttimer(IN := false,
+	                    PT := t#3s);
+	            #state := 6;
+	        END_IF;
+	        ;
+	    3:  // entering pos 90 slow
+	        #ttimer(IN := #turnCW,
+	                PT := t#1s);
+	        
+	        IF #ttimer.Q THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #pos90 := true;
+	            #state := 4;
+	        ELSIF #turnACW THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #state := 5;
+	        END_IF;
+	        ;
+	    4:  // arrive at pos 90, turn back to pos 0
+	        #ttimer(IN := #turnACW AND NOT #turnCW,
+	                PT := t#1s);
+	        
+	        IF #ttimer.Q THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #pos90 := false;
+	            #state := 5;
+	        END_IF;
+	        ;
+	    5:  // leaving pos 90 slow
+	        #ttimer(IN := #turnACW,
+	                PT := t#1s);
+	        
+	        IF #ttimer.Q THEN
+	            #ttimer(IN := false,
+	                    PT := t#3s);
+	            #pos90_slow := false;
+	            #state := 6;
+	        ELSIF #turnCW THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #state := 3;
+	        END_IF;
+	        ;
+	    6:  // on the way to pos 0
+	        #ttimer(IN := #turnACW,
+	                PT := t#3s);
+	        
+	        IF #ttimer.Q THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #pos0_slow := true;
+	            #state := 7;
+	        ELSIF #turnCW THEN
+	            #ttimer(IN := false,
+	                    PT := t#3s);
+	            #state := 2;
+	        END_IF;
+	        ;
+	    7:  // entering pos 0 slow
+	        #ttimer(IN := #turnACW,
+	                PT := t#1s);
+	        
+	        IF #ttimer.Q THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #pos0 := true;
+	            #state := 0;
+	        ELSIF #turnCW THEN
+	            #ttimer(IN := false,
+	                    PT := t#1s);
+	            #state := 1;
+	        END_IF;
+	        ;
+	END_CASE;
+END_FUNCTION_BLOCK
+

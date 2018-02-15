@@ -89,7 +89,7 @@ BEGIN
 	
 	// On-load conveyor for M/C1.
 	#conv4(usrBtn := "iConv4_usrBtn",
-	       prdSens := "iConv4_prdSens",
+	       prdSens := NOT "iConv4_prdSens",
 	       eStop := NOT "iLineReady",
 	       vsdReady := "iConv4_vsdReady",
 	       comms_from_next_conv := #conv3.comms_to_2,
@@ -387,7 +387,7 @@ BEGIN
 	#conv22(prdSens := NOT "iConv22_prdSens",
 	        prdSens2 := NOT "iConv22_prdSens2",
 	        prox_home := "iConv22_prox_pos_0",
-	        encoder_pos := DWORD_TO_DINT("iConv22_pos_encoder"),
+	        encoder_pos := DWORD_TO_DINT("iConv22_pos_encoder":P),
 	        eStop := NOT "iLineReady",
 	        vsdReady := "iConv22_vsdReady",
 	        vsdReady_TT := "iConv22_TT_vsdReady",

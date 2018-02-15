@@ -240,7 +240,8 @@ BEGIN
 	        #alarms[12] := (#prox_diptank_down AND #prox_diptank_up);
 	        
 	        IF #t_on.Q
-	            AND NOT #eStop AND #vsdReady_RO
+	            AND NOT #eStop
+	            AND #vsdReady_RO
 	            AND NOT (#prox_rollover_pos_1 AND (#prox_rollover_pos_2 OR #prox_rollover_pos_home) OR (#prox_rollover_pos_2 AND #prox_rollover_pos_home))
 	            AND NOT (#prox_diptank_down AND #prox_diptank_up)
 	        THEN
@@ -324,7 +325,8 @@ BEGIN
 	            #rollover_Rev := false;
 	            #diptank_down := false;
 	            #diptank_up := false;
-	            #prd_clamp := false;
+	            // do not release clamp if cage is not in home pos.
+	            #prd_clamp := NOT #prox_rollover_pos_home;
 	            
 	            #m_diptank_down := false;
 	            #m_diptank_up := false;

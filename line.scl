@@ -67,6 +67,22 @@ VERSION : 0.1
 BEGIN
 	(* Conveyor line control *)
 	
+	// General alarms
+	#alarms[0] := NOT "iLineReady";
+	#alarms[1] := "iHMI_Estop";
+	#alarms[2] := "iMC1_Estop";
+	#alarms[3] := "iMC2_Estop";
+	#alarms[4] := "iMC3_Estop";
+	#alarms[5] := "iConv2_Estop";
+	#alarms[6] := "iConv4_Estop";
+	#alarms[7] := "iConv19_Estop1";
+	#alarms[8] := "iConv19_Estop2";
+	#alarms[9] := "iConv24_Estop";
+	#alarms[10] := "iConv26_Estop";
+	#alarms[11] := "iConv27_Estop";
+	#alarms[12] := "iConv30_Estop";
+	#alarms[13] := "iConv33_Estop";
+	
 	// On-load conveyor for M/C2 & M/C3.
 	#conv1(usrBtn := "iConv1_usrBtn" OR "iConv1_usrBtn2",
 	       prdSens := "iConv1_prdSens",

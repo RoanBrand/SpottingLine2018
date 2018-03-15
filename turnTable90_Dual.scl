@@ -7,7 +7,8 @@ VERSION : 0.1
       prdSens { ExternalVisible := 'False'} : Bool;   // Product Sensor near front. True-> Product present. (received rollers fwd)
       prdSens2 { ExternalVisible := 'False'} : Bool;   // Product Sensor near back. True-> Product present. (received rollers rev)
       prox_home { ExternalVisible := 'False'} : Bool;   // Proximity Sensor. True-> Table aligned with position 1 & 2.
-      encoder_pos { ExternalVisible := 'False'} : DInt;   // Absolute encoder of 4096 counts for one turn of 360deg.
+      set_home : Bool;   // If true, Home pos is set to current encoder pos
+      encoder_pos : DInt;   // Absolute encoder of 4096 counts for one turn of 360deg.
       eStop { ExternalVisible := 'False'} : Bool;   // Emergency stop button.
       vsdReady { ExternalVisible := 'False'} : Bool;   // Rollers VSD Online and Ready. False-> Conveyor VSD off or in Error State.
       vsdReady_TT { ExternalVisible := 'False'} : Bool;   // TurntTable VSD Online and Ready. False-> TT VSD off or in Error State.
@@ -45,7 +46,9 @@ VERSION : 0.1
       state_prev { ExternalVisible := 'False'} : Int;   // Previous conveyor state.
       intState { ExternalVisible := 'False'} : Int;   // Internal state for nested state machine.
       turnTablePos { ExternalVisible := 'False'; ExternalWritable := 'False'} : Int;   // Either 2 (home), 3 (90deg ACW), 4 (90deg CW).
-      homePosCount { ExternalVisible := 'False'} : DInt := 16749675;
+      homePosCount : DInt := 16749675;
+      dipTankPos_offset : Int;
+      leakTestPos_offset : Int;
       prd : "Product";
       prdOutDir { ExternalVisible := 'False'} : Bool;   // Option: True-> Prd is sent to pos 4. False-> To 3. (default)
       receiveFail { ExternalVisible := 'False'} : Int;   // 0: No Fail; 1: fail rx from pos1; 2: fail rx from pos2
@@ -87,14 +90,18 @@ BEGIN
 	IF (#encoder_pos > (#homePosCount - #xEncoderTolerance))
 	    AND (#encoder_pos < (#homePosCount + #xEncoderTolerance)) THEN
 	    #turnTablePos := 2;
-	ELSIF (#encoder_pos > (#homePosCount - 1024 - #xEncoderTolerance))
-	    AND (#encoder_pos < (#homePosCount - 1024 + #xEncoderTolerance)) THEN
+	ELSIF (#encoder_pos > (#homePosCount - 1024 + #dipTankPos_offset - #xEncoderTolerance))
+	    AND (#encoder_pos < (#homePosCount - 1024 + #dipTankPos_offset + #xEncoderTolerance)) THEN
 	    #turnTablePos := 3;
-	ELSIF (#encoder_pos > (#homePosCount + 1024 - #xEncoderTolerance))
-	    AND (#encoder_pos < (#homePosCount + 1024 + #xEncoderTolerance)) THEN
+	ELSIF (#encoder_pos > (#homePosCount + 1024 + #leakTestPos_offset - #xEncoderTolerance))
+	    AND (#encoder_pos < (#homePosCount + 1024 + #leakTestPos_offset + #xEncoderTolerance)) THEN
 	    #turnTablePos := 4;
 	ELSE
 	    #turnTablePos := 0;
+	END_IF;
+	
+	IF #set_home THEN
+	    #homePosCount := #encoder_pos;
 	END_IF;
 	
 	IF #state <> #s_reset THEN
@@ -476,10 +483,10 @@ BEGIN
 	END_CASE;
 	
 	// Encoder overrun protection.
-	IF (#encoder_pos > (#homePosCount + 2048)) THEN
+	IF (#encoder_pos > (#homePosCount + 1200)) THEN
 	    #alarms[11] := true;
 	    #turnTableCW := false;
-	ELSIF (#homePosCount < (#homePosCount - 2048)) THEN
+	ELSIF (#homePosCount < (#homePosCount - 1200)) THEN
 	    #alarms[11] := true;
 	    #turnTableACW := false;
 	ELSE

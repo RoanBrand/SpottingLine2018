@@ -573,9 +573,10 @@ BEGIN
 	);
 	*)
 	
-	// Temporary reset. Remove and use HMI.
+	// Needs to be this way.
+	// The remote circuit can only be set once the primary is online.
+	// The remote circuit is dropped out anyway when the primary circuit is out.
 	"emReset_remote" := true;
-	"oResetLine" := true; // rename tag
 	
 	// Driptray oil removal pump
 	#oilpump_delay(IN := "iLevelSwitch",

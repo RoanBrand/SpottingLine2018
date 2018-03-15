@@ -388,7 +388,7 @@ BEGIN
 	        END_IF;
 	        
 	        IF #t_on.Q THEN
-	            #alarms[2] := true;
+	            #alarms[3] := true;
 	            #state := #s_reset;
 	        ELSIF #prox_pos_0 THEN
 	            #state := #s_ready_to_receive;
@@ -423,7 +423,7 @@ BEGIN
 	        END_IF;
 	        
 	        IF #t_on.Q THEN
-	            #alarms[3] := true;
+	            #alarms[4] := true;
 	            #state := #s_reset;
 	        ELSIF #prox_pos_90 THEN
 	            #state := #s_ready_to_send;

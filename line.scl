@@ -507,6 +507,7 @@ BEGIN
 	        vsdReady := "iConv28_vsdReady",
 	        comms_from_prev_conv := #conv27.comms_to_next_conv,
 	        comms_from_next_conv := #conv29.comms_to_prev_conv,
+	        xOffload := true,
 	        
 	        rollersFwd => "oConv28_M_Fwd"
 	);
@@ -517,6 +518,7 @@ BEGIN
 	        vsdReady := "iConv29_vsdReady",
 	        comms_from_prev_conv := #conv28.comms_to_next_conv,
 	        comms_from_next_conv := #conv30.comms_to_prev_conv,
+	        xOffload := true,
 	        
 	        rollersFwd => "oConv29_M_Fwd"
 	);
@@ -527,6 +529,7 @@ BEGIN
 	        vsdReady := "iConv30_vsdReady",
 	        comms_from_prev_conv := #conv29.comms_to_next_conv,
 	        comms_from_next_conv := #conv31.comms_to_prev_conv,
+	        xOffload := true,
 	        
 	        rollersFwd => "oConv30_M_Fwd"
 	);
@@ -537,6 +540,7 @@ BEGIN
 	        vsdReady := "iConv31_vsdReady",
 	        comms_from_prev_conv := #conv30.comms_to_next_conv,
 	        comms_from_next_conv := #conv32.comms_to_prev_conv,
+	        xOffload := true,
 	        
 	        rollersFwd => "oConv31_M_Fwd"
 	);
@@ -547,6 +551,7 @@ BEGIN
 	        vsdReady := "iConv32_vsdReady",
 	        comms_from_prev_conv := #conv31.comms_to_next_conv,
 	        comms_from_next_conv := #conv33.comms_to_prev_conv,
+	        xOffload := true,
 	        
 	        rollersFwd => "oConv32_M_Fwd"
 	);
@@ -557,6 +562,7 @@ BEGIN
 	        vsdReady := "iConv33_vsdReady",
 	        comms_from_prev_conv := #conv32.comms_to_next_conv,
 	        //comms_from_next_conv := #conv34.comms_to_prev_conv,
+	        xOffload := true,
 	        
 	        rollersFwd => "oConv33_M_Fwd"
 	);

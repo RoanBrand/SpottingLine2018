@@ -197,7 +197,8 @@ BEGIN
 	        #alarms[11] := (#prox_pos_1 AND (#prox_pos_2 OR #prox_pos_home) OR (#prox_pos_2 AND #prox_pos_home));
 	        
 	        IF #t_on.Q
-	            AND NOT (#eStop AND #vsdReady_RO)
+	            AND NOT #eStop
+	            AND #vsdReady_RO
 	            AND NOT (#prox_pos_1 AND (#prox_pos_2 OR #prox_pos_home) OR (#prox_pos_2 AND #prox_pos_home))
 	        THEN
 	            #alarms_out := 0;

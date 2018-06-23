@@ -11,10 +11,6 @@ VERSION : 0.1
    END_VAR
 
    VAR 
-      conv1 : "conveyor";
-      conv2 : "conveyor";
-      conv4 : "conveyor";
-      conv3 : "turnTable90";
       conv5 : "conveyor";
       conv6 : "conveyor";
       conv7 : "conveyor";
@@ -50,7 +46,12 @@ VERSION : 0.1
       conv22_oldstate : Int;
       oilpump_delay {OriginalPartName := 'TOF'; LibVersion := '1.0'} : TOF;
       xConv19BtnMode : Bool;   // False: Both must be pressed (latching) True: Either can be pressed any time.
+      xResetEm : Bool;
       btn19_1_pressed : Bool;
+      xConv6Bypass : Bool;
+      xConv8Bypass : Bool;
+      xConv9Bypass : Bool;
+      xConv14Bypass : Bool;
       btn19_2_pressed : Bool;
    END_VAR
 
@@ -70,9 +71,9 @@ BEGIN
 	// General alarms
 	#alarms[0] := NOT "iLineReady";
 	#alarms[1] := "iHMI_Estop";
-	#alarms[2] := "iMC1_Estop";
-	#alarms[3] := "iMC2_Estop";
-	#alarms[4] := "iMC3_Estop";
+	#alarms[2] := "iConv8_Estop";
+	#alarms[3] := "iConv10_Estop";
+	#alarms[4] := "iConv14_Estop";
 	#alarms[5] := "iConv2_Estop";
 	#alarms[6] := "iConv4_Estop";
 	#alarms[7] := "iConv19_Estop1";
@@ -82,73 +83,22 @@ BEGIN
 	#alarms[11] := "iConv27_Estop";
 	#alarms[12] := "iConv30_Estop";
 	#alarms[13] := "iConv33_Estop";
+	#alarms[14] := "iConv6_Estop";
 	
-	// On-load conveyor for M/C2 & M/C3.
-	#conv1(usrBtn := "iConv1_usrBtn" OR "iConv1_usrBtn2",
-	       prdSens := "iConv1_prdSens",
-	       eStop := NOT "iLineReady",
-	       vsdReady := "iConv1_vsdReady",
-	       comms_from_next_conv := #conv2.comms_to_prev_conv,
-	       
-	       rollersFwd => "oConv1_M_Fwd"
-	);
 	
-	#conv2(usrBtn := "iConv2_usrBtn",
-	       prdSens := "iConv2_prdSens",
-	       eStop := NOT "iLineReady",
-	       vsdReady := "iConv2_vsdReady",
-	       comms_from_prev_conv := #conv1.comms_to_next_conv,
-	       comms_from_next_conv := #conv3.comms_to_1,
-	       
-	       rollersFwd => "oConv2_M_Fwd"
-	);
-	
-	// On-load conveyor for M/C1.
-	#conv4(usrBtn := "iConv4_usrBtn",
-	       prdSens := NOT "iConv4_prdSens",
-	       eStop := NOT "iLineReady",
-	       vsdReady := "iConv4_vsdReady",
-	       comms_from_next_conv := #conv3.comms_to_2,
-	       
-	       rollersFwd => "oConv4_M_Fwd"
-	);
-	
-	// Turn table 1
-	#conv3(prdSens := "iConv3_prdSens",
-	       prdSens2 := "iConv3_prdSens2",
-	       prox_pos_0 := "iConv3_prox_pos_0",
-	       prox_slow_0 := "iConv3_prox_slow_0",
-	       prox_pos_90 := "iConv3_prox_pos_90",
-	       prox_slow_90 := "iConv3_prox_slow_90",
-	       eStop := NOT "iLineReady",
-	       vsdReady := "iConv3_vsdReady",
-	       vsdReady_TT := "iConv3_TT_vsdReady",
-	       comms_from_1 := #conv2.comms_to_next_conv,
-	       comms_from_2 := #conv4.comms_to_next_conv,
-	       comms_from_4 := #conv5.comms_to_prev_conv,
-	       
-	       xOutDir := true,
-	       xPrdDirection90 := true,
-	       xAutoMode := true,
-	       
-	       rollersFwd => "oConv3_M_Fwd",
-	       rollersRev => "oConv3_M_Rev",
-	       turnTableCW => "oConv3_TT_CW",
-	       turnTableACW => "oConv3_TT_ACW",
-	       turnTableFast => "oConv3_TT_Fast"
-	);
-	
-	#conv5(usrBtn := TRUE,
-	       prdSens := NOT "iConv5_prdSens",
+	#conv5(usrBtn := true,
+	       prdSens := NOT "iConv5_prdSens" AND "iConv5_rob_perm",
 	       eStop := NOT "iLineReady",
 	       vsdReady := "iConv5_vsdReady",
-	       comms_from_prev_conv := #conv3.comms_to_4,
-	       comms_from_next_conv := #conv6.comms_to_prev_conv,
+	       comms_from_prev_conv := 0,
+	       comms_from_next_conv := #conv6.comms_to_prev_conv
 	       
-	       rollersFwd => "oConv5_M_Fwd"
+	      // rollersFwd => "oConv5_M_Fwd"
 	);
 	
-	#conv6(usrBtn := TRUE,
+	"oConv5_M_Fwd" := #conv5.rollersFwd AND "iConv5_rob_perm";
+	 
+	#conv6(usrBtn := #xConv6Bypass OR "iConv6_usrBtn",
 	       prdSens := "iConv6_prdSens",
 	       eStop := NOT "iLineReady",
 	       vsdReady := "iConv6_vsdReady",
@@ -158,7 +108,7 @@ BEGIN
 	       rollersFwd => "oConv6_M_Fwd"
 	);
 	
-	#conv7(usrBtn := TRUE,
+	#conv7(usrBtn := true,
 	       prdSens := NOT "iConv7_prdSens",
 	       eStop := NOT "iLineReady",
 	       vsdReady := "iConv7_vsdReady",
@@ -168,7 +118,7 @@ BEGIN
 	       rollersFwd => "oConv7_M_Fwd"
 	);
 	
-	#conv8(usrBtn := TRUE,
+	#conv8(usrBtn := #xConv8Bypass OR "iConv8_usrBtn",
 	       prdSens := NOT "iConv8_prdSens",
 	       eStop := NOT "iLineReady",
 	       vsdReady := "iConv8_vsdReady",
@@ -178,7 +128,7 @@ BEGIN
 	       rollersFwd => "oConv8_M_Fwd"
 	);
 	
-	#conv9(usrBtn := TRUE,
+	#conv9(usrBtn := #xConv9Bypass OR "iConv9_usrBtn",
 	       prdSens := NOT "iConv9_prdSens",
 	       eStop := NOT "iLineReady",
 	       vsdReady := "iConv9_vsdReady",
@@ -188,7 +138,7 @@ BEGIN
 	       rollersFwd => "oConv9_M_Fwd"
 	);
 	
-	#conv10(usrBtn := TRUE,
+	#conv10(usrBtn := true,
 	        prdSens := NOT "iConv10_prdSens",
 	        eStop := NOT "iLineReady",
 	        vsdReady := "iConv10_vsdReady",
@@ -218,7 +168,7 @@ BEGIN
 	        rollersFwd => "oConv12_M_Fwd"
 	);
 	
-	#conv13(usrBtn := TRUE,
+	#conv13(usrBtn := #xConv14Bypass OR "iConv14_usrBtn" ,
 	        prdSens := "iConv13_prdSens",
 	        eStop := NOT "iLineReady",
 	        vsdReady := "iConv13_vsdReady",
@@ -235,7 +185,7 @@ BEGIN
 	END_IF;
 	
 	// Future turntable.
-	#conv14(usrBtn := TRUE,
+	#conv14(usrBtn := #xConv14Bypass OR "iConv14_usrBtn",
 	        prdSens := NOT "iConv14_prdSens",
 	        eStop := NOT "iLineReady",
 	        vsdReady := "iConv14_vsdReady",
@@ -245,7 +195,7 @@ BEGIN
 	        rollersFwd => "oConv14_M_Fwd"
 	);
 	
-	"oConv14_prod_sens" := NOT "iConv14_prdSens"; //to dmc
+	"oConv14_prod_sens" := NOT "iConv14_prdSens"AND (#xConv14Bypass OR "iConv14_usrBtn"); //to dmc
 	"oConv14_ready_to_send" := #conv14.comms_to_next_conv = 100;
 	
 	IF "iDMC_out_req_send" AND "iBarcodereaderRelease" THEN
@@ -260,16 +210,18 @@ BEGIN
 	
 	#dmc_prd.Rejected := NOT "iBarcodereaderNotReject";
 	
-	#conv15(usrBtn := TRUE,
+	#conv15(usrBtn := NOT "iRobot_measuring",
 	        prdSens := "iConv15_prdSens",
 	        eStop := NOT "iLineReady",
 	        vsdReady := "iConv15_vsdReady",
 	        comms_from_prev_conv := #DMC_OUT,
 	        comms_from_next_conv := #conv16.comms_to_prev_conv,
-	        prd_in := #dmc_prd,
+	        prd_in := #dmc_prd
 	        
-	        rollersFwd => "oConv15_M_Fwd"
+	        //rollersFwd => "oConv15_M_Fwd"
 	);
+	"oConv15_ready_for_pick" := #conv15.prdSens AND NOT "oConv15_M_Fwd" AND "iRobot_measuring";
+	"oConv15_M_Fwd" := #conv15.rollersFwd AND "iConv15_busy_picking" ;
 	
 	"oDMC_out_perm_send" := #conv15.comms_to_prev_conv = 101;
 	"oConv15_prod_sens" := "iConv15_prdSens";//to dmc
@@ -277,16 +229,18 @@ BEGIN
 	"oRb6215Slow" := "iRb6215Slow"; // slow signal to trigger barcodereader
 	"oRb6215Stop" := "iRbStop";     // prod sensor on bg6215 for barcodereader
 	
-	#conv16(usrBtn := TRUE,
+	#conv16(usrBtn := NOT "iRobot_measuring",
 	        prdSens := "iConv16_prdSens",
 	        eStop := NOT "iLineReady",
 	        vsdReady := "iConv16_vsdReady",
 	        comms_from_prev_conv := #conv15.comms_to_next_conv,
 	        comms_from_next_conv := #conv17.comms_to_1,
-	        prd_in := #conv15.prd_out,
+	        prd_in := #conv15.prd_out
 	        
-	        rollersFwd => "oConv16_M_Fwd"
+	        //rollersFwd => "oConv16_M_Fwd"
 	);
+	"oConv16_ready_for_place" :=NOT #conv16.prdSens AND NOT "oConv16_M_Fwd" AND "iRobot_measuring";
+	"oConv16_M_Fwd" := #conv16.rollersFwd AND "iConv16_busy_placing";
 	
 	CASE #rej_state OF
 	    0:
@@ -567,21 +521,17 @@ BEGIN
 	        rollersFwd => "oConv33_M_Fwd"
 	);
 	
-	// conveyor removed
-	(*
-	#conv34(usrBtn := TRUE,
-	        prdSens := NOT "iConv34_prdSens",
-	        eStop := NOT "iLineReady",
-	        vsdReady := "iConv34_vsdReady",
-	        comms_from_prev_conv := #conv33.comms_to_next_conv,
-	        
-	        rollersFwd => "oConv34_M_Fwd"
-	);
-	*)
+	
 	
 	// Needs to be this way.
 	// The remote circuit can only be set once the primary is online.
 	// The remote circuit is dropped out anyway when the primary circuit is out.
+	IF "iHmi_Reset" OR #xResetEm THEN
+	    "oResetLine" := true;
+	ELSE
+	    "oResetLine" := false;
+	END_IF;
+	    
 	"emReset_remote" := true;
 	
 	// Driptray oil removal pump

@@ -12,10 +12,12 @@ VERSION : 0.1
       comms_from_prev_conv { ExternalVisible := 'False'} : Int;   // Communication input from previous conveyor in line.
       comms_from_next_conv { ExternalVisible := 'False'} : Int;   // Communication input from next conveyor in line.
       prd_in { ExternalVisible := 'False'} : "Product";
+      xReverseSend : Bool;   // Option: True-> Prd sent to previous conv in reverse. False (default)-> Prd sent to next conv.
    END_VAR
 
    VAR_OUTPUT 
       rollersFwd { ExternalVisible := 'False'} : Bool;   // True-> Conveyor belt on. Product moving forward.
+      rollersRev { ExternalVisible := 'False'} : Bool;   // True-> Conveyor belt on. Product moving in reverse.
       statusLed { ExternalVisible := 'False'} : Bool;   // Light Indication to user.
       comms_to_prev_conv { ExternalVisible := 'False'} : Int;   // Communication output to previous conveyor in line.
       comms_to_next_conv { ExternalVisible := 'False'} : Int;   // Communication output to next conveyor in line.
@@ -31,6 +33,7 @@ VERSION : 0.1
       t_off {OriginalPartName := 'TOF'; LibVersion := '1.0'; ExternalVisible := 'False'} : TOF;
       t_on {OriginalPartName := 'TON'; LibVersion := '1.0'; ExternalVisible := 'False'} : TON;
       m_rollersFwd : Bool;   // Manual rollers motor forward request.
+      m_rollersRev : Bool;   // Manual rollers motor reverse request.
    END_VAR
 
    VAR CONSTANT 
@@ -136,10 +139,12 @@ BEGIN
 	        
 	        IF NOT #prdSens THEN
 	            // Product mysteriously dissapeared.
+	            #comms_to_prev_conv := #m_silent;
 	            #comms_to_next_conv := #m_silent;
 	            #alarms[2] := NOT #xOffload;
 	            #state := #s_reset;
 	        ELSIF #xManualMode THEN
+	            #comms_to_prev_conv := #m_silent;
 	            #comms_to_next_conv := #m_silent;
 	            #state := #s_manual;
 	        ELSE
@@ -147,11 +152,19 @@ BEGIN
 	                   PT := t#1s);
 	            
 	            IF #t_off.Q THEN
-	                #comms_to_next_conv := #m_req_send;
-	                IF #comms_from_next_conv = #m_perm_send THEN
-	                    #state := #s_sending;
+	                IF #xReverseSend THEN
+	                    #comms_to_prev_conv := #m_req_send;
+	                    IF #comms_from_prev_conv = #m_perm_send THEN
+	                        #state := #s_sending;
+	                    END_IF;
+	                ELSE
+	                    #comms_to_next_conv := #m_req_send;
+	                    IF #comms_from_next_conv = #m_perm_send THEN
+	                        #state := #s_sending;
+	                    END_IF;
 	                END_IF;
 	            ELSE
+	                #comms_to_prev_conv := #m_silent;
 	                #comms_to_next_conv := #m_silent;
 	            END_IF;
 	        END_IF;
@@ -161,16 +174,24 @@ BEGIN
 	            #t_on(IN := false,
 	                  PT := #c_conveyor_timeout);
 	            #prd_out := #prd;
-	            #rollersFwd := true;
-	            #comms_to_next_conv := #m_sending;
+	            IF #comms_from_next_conv = #m_perm_send THEN
+	                #rollersFwd := true;
+	                #comms_to_next_conv := #m_sending;
+	            ELSE
+	                #rollersRev := true;
+	                #comms_to_prev_conv := #m_sending;
+	            END_IF;
 	            #state_prev := #state;
 	        END_IF;
 	        
 	        #t_on(IN := true,
 	              PT := #c_conveyor_timeout);
 	        
-	        IF NOT #prdSens AND #comms_from_next_conv <> #m_perm_send THEN
-	            #state := #s_ready_to_receive;
+	        IF NOT #prdSens THEN
+	            IF (#rollersFwd AND (#comms_from_next_conv <> #m_perm_send))
+	                OR (#rollersRev AND (#comms_from_prev_conv <> #m_perm_send)) THEN
+	                #state := #s_ready_to_receive;
+	            END_IF;
 	        ELSE
 	            IF #t_on.Q THEN
 	                // Timeout error - Product did not leave in time.
@@ -181,13 +202,17 @@ BEGIN
 	        
 	        IF #state_prev <> #state THEN
 	            #rollersFwd := false;
+	            #rollersRev := false;
 	            #comms_to_next_conv := #m_silent;
+	            #comms_to_prev_conv := #m_silent;
 	        END_IF;
 	        ;
 	    5:  // Reset
 	        IF #state_prev <> #state THEN
 	            #rollersFwd := false;
+	            #rollersRev := false;
 	            #m_rollersFwd := false;
+	            #m_rollersRev := false;
 	            #statusLed := false;
 	            #comms_to_next_conv := 0;
 	            #comms_to_prev_conv := 0;
@@ -218,6 +243,7 @@ BEGIN
 	        END_IF;
 	        
 	        #rollersFwd := #m_rollersFwd;
+	        #rollersRev := #m_rollersRev;
 	        
 	        IF NOT #xManualMode THEN
 	            #state := #s_reset;
@@ -225,7 +251,9 @@ BEGIN
 	        
 	        IF #state_prev <> #state THEN
 	            #rollersFwd := false;
+	            #rollersRev := false;
 	            #m_rollersFwd := false;
+	            #m_rollersRev := false;
 	        END_IF;
 	        ;
 	END_CASE;

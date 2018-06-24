@@ -93,11 +93,11 @@ BEGIN
 	       comms_from_prev_conv := 0,
 	       comms_from_next_conv := #conv6.comms_to_prev_conv
 	       
-	      // rollersFwd => "oConv5_M_Fwd"
+	       // rollersFwd => "oConv5_M_Fwd"
 	);
 	
 	"oConv5_M_Fwd" := #conv5.rollersFwd AND "iConv5_rob_perm";
-	 
+	
 	#conv6(usrBtn := #xConv6Bypass OR "iConv6_usrBtn",
 	       prdSens := "iConv6_prdSens",
 	       eStop := NOT "iLineReady",
@@ -168,7 +168,7 @@ BEGIN
 	        rollersFwd => "oConv12_M_Fwd"
 	);
 	
-	#conv13(usrBtn := #xConv14Bypass OR "iConv14_usrBtn" ,
+	#conv13(usrBtn := #xConv14Bypass OR "iConv14_usrBtn",
 	        prdSens := "iConv13_prdSens",
 	        eStop := NOT "iLineReady",
 	        vsdReady := "iConv13_vsdReady",
@@ -195,7 +195,7 @@ BEGIN
 	        rollersFwd => "oConv14_M_Fwd"
 	);
 	
-	"oConv14_prod_sens" := NOT "iConv14_prdSens"AND (#xConv14Bypass OR "iConv14_usrBtn"); //to dmc
+	"oConv14_prod_sens" := NOT "iConv14_prdSens" AND (#xConv14Bypass OR "iConv14_usrBtn"); //to dmc
 	"oConv14_ready_to_send" := #conv14.comms_to_next_conv = 100;
 	
 	IF "iDMC_out_req_send" AND "iBarcodereaderRelease" THEN
@@ -221,7 +221,7 @@ BEGIN
 	        //rollersFwd => "oConv15_M_Fwd"
 	);
 	"oConv15_ready_for_pick" := #conv15.prdSens AND NOT "oConv15_M_Fwd" AND "iRobot_measuring";
-	"oConv15_M_Fwd" := #conv15.rollersFwd AND "iConv15_busy_picking" ;
+	"oConv15_M_Fwd" := #conv15.rollersFwd AND "iConv15_busy_picking";
 	
 	"oDMC_out_perm_send" := #conv15.comms_to_prev_conv = 101;
 	"oConv15_prod_sens" := "iConv15_prdSens";//to dmc
@@ -239,7 +239,7 @@ BEGIN
 	        
 	        //rollersFwd => "oConv16_M_Fwd"
 	);
-	"oConv16_ready_for_place" :=NOT #conv16.prdSens AND NOT "oConv16_M_Fwd" AND "iRobot_measuring";
+	"oConv16_ready_for_place" := NOT #conv16.prdSens AND NOT "oConv16_M_Fwd" AND "iRobot_measuring";
 	"oConv16_M_Fwd" := #conv16.rollersFwd AND "iConv16_busy_placing";
 	
 	CASE #rej_state OF
@@ -365,7 +365,8 @@ BEGIN
 	        comms_from_3 := #conv23.comms_to_prev_conv,
 	        comms_from_4 := #LT_IN,
 	        
-	        xOutDir := #LeakTestON AND (#conv22rxed = 9),
+	        xOutDir := #LeakTestON AND ((#conv22rxed = 9) OR "iConv23_RevSend"),
+	        xInDir := "iConv23_RevSend",
 	        xAutoMode := true,
 	        
 	        rollersFwd => "oConv22_M_Fwd",
@@ -375,8 +376,8 @@ BEGIN
 	        turnTableFast => "oConv22_TT_Fast"
 	);
 	
-	// if conv 22 had a successful receive
-	IF #LeakTestON AND (#conv22.state = 9) AND (#conv22_oldstate = 2) THEN
+	// if conv 22 had a successful receive from conv 21
+	IF #LeakTestON AND (#conv22.state = 9) AND (#conv22_oldstate = 2) AND (#conv22.turnTablePos = 2) THEN
 	    #conv22rxed := #conv22rxed + 1;
 	    IF #conv22rxed >= 10 THEN
 	        #conv22rxed := 1;
@@ -390,8 +391,10 @@ BEGIN
 	        vsdReady := "iConv23_vsdReady",
 	        comms_from_prev_conv := #conv22.comms_to_3,
 	        comms_from_next_conv := #conv24.comms_to_prev_conv,
+	        xReverseSend := "iConv23_RevSend",
 	        
-	        rollersFwd => "oConv23_M_Fwd"
+	        rollersFwd => "oConv23_M_Fwd",
+	        rollersRev => "oConv23_M_Rev"
 	);
 	
 	// Rollover
@@ -531,7 +534,7 @@ BEGIN
 	ELSE
 	    "oResetLine" := false;
 	END_IF;
-	    
+	
 	"emReset_remote" := true;
 	
 	// Driptray oil removal pump

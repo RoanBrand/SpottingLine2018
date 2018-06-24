@@ -19,8 +19,10 @@ VERSION : 0.1
       comms_from_4 { ExternalVisible := 'False'} : Int;   // Comms from conveyor @ pos 4.
       prd_in1 { ExternalVisible := 'False'} : "Product";
       prd_in2 { ExternalVisible := 'False'} : "Product";
+      prd_in3 { ExternalVisible := 'False'} : "Product";
       xAutoMode { ExternalVisible := 'False'} : Bool;   // Option: True-> TT operates automatically without user and DHS.
-      xOutDir : Bool;
+      xOutDir : Bool;   // Option: True-> Prd is sent to pos 4. False (default)-> To 3.
+      xInDir : Bool;   // Option: True-> Prd is received from 3. False (default)-> From 1.
       xEncoderTolerance : Int := 10;
    END_VAR
 
@@ -85,6 +87,7 @@ BEGIN
 	//     1    ^
 	//
 	// Uses encoder and single hom proxy to determine position
+	// 2018-06: Add mode to receive prd from 3, and send to 4.
 	
 	// Handle TurnTable position
 	IF (#encoder_pos > (#homePosCount - #xEncoderTolerance))
@@ -127,7 +130,11 @@ BEGIN
 	            IF (#prdSens OR #prdSens2) THEN
 	                #state := #s_ready_to_send;
 	            ELSE
-	                #state := #s_turn_12;
+	                IF #xInDir THEN
+	                    #state := #s_turn_34;
+	                ELSE
+	                    #state := #s_turn_12;
+	                END_IF;
 	            END_IF;
 	        ELSIF (#prdSens OR #prdSens2) THEN
 	            IF ((#turnTablePos = 3) AND NOT #prdOutDir)
@@ -137,10 +144,19 @@ BEGIN
 	                #state := #s_turn_34;
 	            END_IF;
 	        ELSE
-	            IF #turnTablePos = 2 THEN
-	                #state := #s_ready_to_receive;
+	            // No prd detected.
+	            IF #xInDir THEN
+	                IF #turnTablePos = 3 THEN
+	                    #state := #s_ready_to_receive;
+	                ELSE
+	                    #state := #s_turn_34;
+	                END_IF;
 	            ELSE
-	                #state := #s_turn_12;
+	                IF #turnTablePos = 2 THEN
+	                    #state := #s_ready_to_receive;
+	                ELSE
+	                    #state := #s_turn_12;
+	                END_IF;
 	            END_IF;
 	        END_IF;
 	        ;
@@ -155,20 +171,38 @@ BEGIN
 	        IF #xManualMode THEN
 	            #comms_to_1 := #m_silent;
 	            #comms_to_2 := #m_silent;
+	            #comms_to_3 := #m_silent;
 	            #state := #s_manual;
 	        ELSE
 	            CASE #intState OF
-	                0:  // Wait for 1 or 2 to request to send a product.
-	                    IF #comms_from_1 = #m_req_send THEN
-	                        #comms_to_1 := #m_perm_send;
-	                        #t_on(IN := false,
-	                              PT := t#1s);
-	                        #intState := 1;
-	                    ELSIF #comms_from_2 = #m_req_send THEN
-	                        #comms_to_2 := #m_perm_send;
-	                        #t_on(IN := false,
-	                              PT := t#1s);
-	                        #intState := 1;
+	                0:  // Wait for 1,2 or 3 to request to send a product.
+	                    IF #turnTablePos = 2 THEN
+	                        IF #xInDir THEN
+	                            #state := #s_turn_34;
+	                            RETURN;
+	                        END_IF;
+	                        IF #comms_from_1 = #m_req_send THEN
+	                            #comms_to_1 := #m_perm_send;
+	                            #t_on(IN := false,
+	                                  PT := t#1s);
+	                            #intState := 1;
+	                        ELSIF #comms_from_2 = #m_req_send THEN
+	                            #comms_to_2 := #m_perm_send;
+	                            #t_on(IN := false,
+	                                  PT := t#1s);
+	                            #intState := 1;
+	                        END_IF;
+	                    ELSIF #turnTablePos = 3 THEN
+	                        IF NOT #xInDir THEN
+	                            #state := #s_turn_12;
+	                            RETURN;
+	                        END_IF;
+	                        IF #comms_from_3 = #m_req_send THEN
+	                            #comms_to_3 := #m_perm_send;
+	                            #t_on(IN := false,
+	                                  PT := t#1s);
+	                            #intState := 1;
+	                        END_IF;
 	                    END_IF;
 	                    ;
 	                1:  // Give permission to sending conveyor.
@@ -177,10 +211,12 @@ BEGIN
 	                    IF #t_on.Q THEN
 	                        #comms_to_1 := #m_silent;
 	                        #comms_to_2 := #m_silent;
+	                        #comms_to_3 := #m_silent;
 	                        #intState := 0;
 	                    ELSE
 	                        IF (#comms_from_1 = #m_sending AND #comms_to_1 = #m_perm_send) OR
-	                            (#comms_from_2 = #m_sending AND #comms_to_2 = #m_perm_send) THEN
+	                            (#comms_from_2 = #m_sending AND #comms_to_2 = #m_perm_send) OR
+	                            (#comms_from_3 = #m_sending AND #comms_to_3 = #m_perm_send) THEN
 	                            #state := #s_receiving;
 	                        END_IF;
 	                    END_IF;
@@ -199,6 +235,9 @@ BEGIN
 	            ELSIF #comms_from_2 = #m_sending THEN
 	                #prd := #prd_in2;
 	                #rollersRev := true;
+	            ELSIF #comms_from_3 = #m_sending THEN
+	                #prd := #prd_in3;
+	                #rollersRev := true;
 	            END_IF;
 	            #state_prev := #state;
 	        END_IF;
@@ -206,10 +245,9 @@ BEGIN
 	        #t_on(IN := true,
 	              PT := #c_conveyor_timeout);
 	        
-	        IF (#prdSens AND #comms_from_1 = #m_sending) THEN
-	            #receiveFail := 0;
-	            #state := #s_turn_34;
-	        ELSIF (#prdSens2 AND #comms_from_2 = #m_sending) THEN
+	        IF (#prdSens AND #comms_from_1 = #m_sending) OR
+	            (#prdSens2 AND #comms_from_2 = #m_sending) OR
+	            (#prdSens2 AND #comms_from_3 = #m_sending) THEN
 	            #receiveFail := 0;
 	            #state := #s_turn_34;
 	        ELSE
@@ -219,7 +257,11 @@ BEGIN
 	                IF #rollersFwd THEN
 	                    #receiveFail := 1;
 	                ELSE
-	                    #receiveFail := 2;
+	                    IF #xInDir THEN
+	                        #receiveFail := 3;
+	                    ELSE
+	                        #receiveFail := 2;
+	                    END_IF;
 	                END_IF;
 	                #state := #s_reset;
 	            END_IF;
@@ -228,6 +270,7 @@ BEGIN
 	        IF #state_prev <> #state THEN
 	            #comms_to_1 := #m_silent;
 	            #comms_to_2 := #m_silent;
+	            #comms_to_3 := #m_silent;
 	            #rollersFwd := false;
 	            #rollersRev := false;
 	        END_IF;
@@ -312,7 +355,11 @@ BEGIN
 	                    IF (#prdOutDir AND (#comms_from_4 <> #m_perm_send))
 	                        OR (NOT #prdOutDir AND (#comms_from_3 <> #m_perm_send)) THEN
 	                        #sendFail := 0;
-	                        #state := #s_turn_12;
+	                        IF #xInDir THEN
+	                            #state := #s_turn_34;
+	                        ELSE
+	                            #state := #s_turn_12;
+	                        END_IF;
 	                    END_IF;
 	                END_IF;
 	                ;
@@ -337,6 +384,7 @@ BEGIN
 	            #turnTableACW := false;
 	            #turnTableCW := false;
 	            #statusLed := false;
+	            #comms_to_3 := 0;
 	            #comms_to_2 := 0;
 	            #comms_to_1 := 0;
 	            #t_on(IN := false,
@@ -413,10 +461,10 @@ BEGIN
 	        IF #state_prev <> #state THEN
 	            #t_on(IN := false,
 	                  PT := #c_conveyor_timeout);
-	            IF #prdOutDir THEN
-	                #turnTableCW := true;
+	            IF (#prdSens OR #prdSens2) AND #prdOutDir THEN
+	                #turnTableCW := true; // turn to 4
 	            ELSE
-	                #turnTableACW := true;
+	                #turnTableACW := true; // turn to 3
 	            END_IF;
 	            #turnTableFast := true;
 	            #state_prev := #state;
@@ -427,7 +475,7 @@ BEGIN
 	        
 	        // slow down before pos reached
 	        IF #turnTableFast THEN
-	            IF #prdOutDir THEN
+	            IF #turnTableCW THEN
 	                IF #encoder_pos > (#homePosCount - #xEncoderTolerance + 900) THEN
 	                    #turnTableFast := false;
 	                END_IF;
@@ -441,9 +489,14 @@ BEGIN
 	        IF #t_on.Q THEN
 	            #alarms[4] := true;
 	            #state := #s_reset;
-	        ELSIF #prdOutDir AND (#turnTablePos = 4)
-	            OR NOT #prdOutDir AND (#turnTablePos = 3) THEN
+	        ELSIF (#turnTableCW AND (#turnTablePos = 4)) THEN
 	            #state := #s_ready_to_send;
+	        ELSIF (#turnTableACW AND (#turnTablePos = 3)) THEN
+	            IF (#prdSens OR #prdSens2) THEN
+	                #state := #s_ready_to_send;
+	            ELSE
+	                #state := #s_ready_to_receive;
+	            END_IF;
 	        ELSIF #xManualMode THEN
 	            #state := #s_manual;
 	        END_IF;

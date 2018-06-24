@@ -203,3 +203,5 @@ iConv16_busy_placing;Default tag table;Bool;%I11.2;;True;True;True;;
 iRobot_measuring;Default tag table;Bool;%I11.1;;True;True;True;;
 oConv15_ready_for_pick;Default tag table;Bool;%Q4.2;;True;True;True;;
 oConv16_ready_for_place;Default tag table;Bool;%Q4.3;;True;True;True;;
+iConv23_RevSend;Default tag table;Bool;%M220.2;True: Send product in reverse from conv 23 to conv 22 TT through to LeakTester;True;True;True;;
+oConv23_M_Rev;Default tag table;Bool;%M220.3;;True;True;True;;

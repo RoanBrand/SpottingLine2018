@@ -203,3 +203,7 @@ iConv16_busy_placing;Default tag table;Bool;%I11.2;;True;True;True;;
 iRobot_measuring;Default tag table;Bool;%I11.1;;True;True;True;;
 oConv15_ready_for_pick;Default tag table;Bool;%Q4.2;;True;True;True;;
 oConv16_ready_for_place;Default tag table;Bool;%Q4.3;;True;True;True;;
+oconv15_rej_to_robot;Default tag table;Bool;%Q4.4;;True;True;True;;
+iRejectFromRobot;Default tag table;Bool;%I11.4;;True;True;True;;
+Tag_1;Default tag table;Bool;%I11.3;;True;True;True;;
+Tag_2;Default tag table;Byte;%IB20;;True;True;True;;

@@ -85,7 +85,9 @@ BEGIN
 	#alarms[13] := "iConv33_Estop";
 	#alarms[14] := "iConv6_Estop";
 	
-	
+	IF NOT "iConv5_rob_perm" THEN
+	    #conv5.prd.spottingData := BYTE_TO_INT("Tag_2");
+	END_IF;
 	#conv5(usrBtn := true,
 	       prdSens := NOT "iConv5_prdSens" AND "iConv5_rob_perm",
 	       eStop := NOT "iLineReady",
@@ -93,11 +95,11 @@ BEGIN
 	       comms_from_prev_conv := 0,
 	       comms_from_next_conv := #conv6.comms_to_prev_conv
 	       
-	      // rollersFwd => "oConv5_M_Fwd"
+	       // rollersFwd => "oConv5_M_Fwd"
 	);
 	
 	"oConv5_M_Fwd" := #conv5.rollersFwd AND "iConv5_rob_perm";
-	 
+	
 	#conv6(usrBtn := #xConv6Bypass OR "iConv6_usrBtn",
 	       prdSens := "iConv6_prdSens",
 	       eStop := NOT "iLineReady",
@@ -105,7 +107,9 @@ BEGIN
 	       comms_from_prev_conv := #conv5.comms_to_next_conv,
 	       comms_from_next_conv := #conv7.comms_to_prev_conv,
 	       
-	       rollersFwd => "oConv6_M_Fwd"
+	       rollersFwd => "oConv6_M_Fwd",
+	       prd_in := #conv5.prd_out
+	       
 	);
 	
 	#conv7(usrBtn := true,
@@ -115,7 +119,8 @@ BEGIN
 	       comms_from_prev_conv := #conv6.comms_to_next_conv,
 	       comms_from_next_conv := #conv8.comms_to_prev_conv,
 	       
-	       rollersFwd => "oConv7_M_Fwd"
+	       rollersFwd => "oConv7_M_Fwd",
+	       prd_in := #conv6.prd_out
 	);
 	
 	#conv8(usrBtn := #xConv8Bypass OR "iConv8_usrBtn",
@@ -125,7 +130,8 @@ BEGIN
 	       comms_from_prev_conv := #conv7.comms_to_next_conv,
 	       comms_from_next_conv := #conv9.comms_to_prev_conv,
 	       
-	       rollersFwd => "oConv8_M_Fwd"
+	       rollersFwd => "oConv8_M_Fwd",
+	       prd_in := #conv7.prd_out
 	);
 	
 	#conv9(usrBtn := #xConv9Bypass OR "iConv9_usrBtn",
@@ -135,7 +141,8 @@ BEGIN
 	       comms_from_prev_conv := #conv8.comms_to_next_conv,
 	       comms_from_next_conv := #conv10.comms_to_prev_conv,
 	       
-	       rollersFwd => "oConv9_M_Fwd"
+	       rollersFwd => "oConv9_M_Fwd",
+	       prd_in := #conv8.prd_out
 	);
 	
 	#conv10(usrBtn := true,
@@ -145,7 +152,9 @@ BEGIN
 	        comms_from_prev_conv := #conv9.comms_to_next_conv,
 	        comms_from_next_conv := #conv11.comms_to_prev_conv,
 	        
-	        rollersFwd => "oConv10_M_Fwd"
+	        rollersFwd => "oConv10_M_Fwd",
+	        prd_in := #conv9.prd_out
+	        
 	);
 	
 	#conv11(usrBtn := TRUE,
@@ -168,7 +177,7 @@ BEGIN
 	        rollersFwd => "oConv12_M_Fwd"
 	);
 	
-	#conv13(usrBtn := #xConv14Bypass OR "iConv14_usrBtn" ,
+	#conv13(usrBtn := #xConv14Bypass OR "iConv14_usrBtn",
 	        prdSens := "iConv13_prdSens",
 	        eStop := NOT "iLineReady",
 	        vsdReady := "iConv13_vsdReady",
@@ -195,7 +204,7 @@ BEGIN
 	        rollersFwd => "oConv14_M_Fwd"
 	);
 	
-	"oConv14_prod_sens" := NOT "iConv14_prdSens"AND (#xConv14Bypass OR "iConv14_usrBtn"); //to dmc
+	"oConv14_prod_sens" := NOT "iConv14_prdSens" AND (#xConv14Bypass OR "iConv14_usrBtn"); //to dmc
 	"oConv14_ready_to_send" := #conv14.comms_to_next_conv = 100;
 	
 	IF "iDMC_out_req_send" AND "iBarcodereaderRelease" THEN
@@ -220,8 +229,9 @@ BEGIN
 	        
 	        //rollersFwd => "oConv15_M_Fwd"
 	);
+	"oconv15_rej_to_robot" := NOT #conv15.prd.Rejected;
 	"oConv15_ready_for_pick" := #conv15.prdSens AND NOT "oConv15_M_Fwd" AND "iRobot_measuring";
-	"oConv15_M_Fwd" := #conv15.rollersFwd AND "iConv15_busy_picking" ;
+	"oConv15_M_Fwd" := #conv15.rollersFwd AND "iConv15_busy_picking";
 	
 	"oDMC_out_perm_send" := #conv15.comms_to_prev_conv = 101;
 	"oConv15_prod_sens" := "iConv15_prdSens";//to dmc
@@ -229,7 +239,7 @@ BEGIN
 	"oRb6215Slow" := "iRb6215Slow"; // slow signal to trigger barcodereader
 	"oRb6215Stop" := "iRbStop";     // prod sensor on bg6215 for barcodereader
 	
-	#conv16(usrBtn := NOT "iRobot_measuring",
+	#conv16(usrBtn := "iConv16_busy_placing",
 	        prdSens := "iConv16_prdSens",
 	        eStop := NOT "iLineReady",
 	        vsdReady := "iConv16_vsdReady",
@@ -239,7 +249,8 @@ BEGIN
 	        
 	        //rollersFwd => "oConv16_M_Fwd"
 	);
-	"oConv16_ready_for_place" :=NOT #conv16.prdSens AND NOT "oConv16_M_Fwd" AND "iRobot_measuring";
+	
+	"oConv16_ready_for_place" := NOT #conv16.prdSens AND NOT "oConv16_M_Fwd" AND "iRobot_measuring";
 	"oConv16_M_Fwd" := #conv16.rollersFwd AND "iConv16_busy_placing";
 	
 	CASE #rej_state OF
@@ -278,7 +289,7 @@ BEGIN
 	        comms_from_1 := #conv16.comms_to_next_conv,
 	        comms_from_3 := #rej_signal, // unpowered reject conveyor. can use reject prd sensor here.
 	        comms_from_4 := #conv18.comms_to_prev_conv,
-	        prd_in1 := #conv16.prd_out,
+	        //prd_in1 := #conv16.prd_out,
 	        
 	        xOutDir := NOT #conv17.prd.Rejected,
 	        xPrdDirection90 := true,
@@ -290,7 +301,15 @@ BEGIN
 	        turnTableACW => "oConv17_TT_ACW",
 	        turnTableFast => "oConv17_TT_Fast"
 	);
-	
+	IF NOT "iRobot_measuring" THEN
+	    #conv17.prd_in1 := #conv16.prd_out;
+	END_IF;
+	IF "iRobot_measuring" AND "iRejectFromRobot" AND NOT "iConv16_busy_placing" THEN
+	    #conv17.prd_in1.Rejected := false;
+	END_IF;
+	IF "iRobot_measuring" AND NOT "iRejectFromRobot" AND NOT "iConv16_busy_placing" THEN
+	    #conv17.prd_in1.Rejected := true;
+	END_IF;
 	#conv18(usrBtn := TRUE,
 	        prdSens := "iConv18_prdSens",
 	        eStop := NOT "iLineReady",
@@ -531,7 +550,7 @@ BEGIN
 	ELSE
 	    "oResetLine" := false;
 	END_IF;
-	    
+	
 	"emReset_remote" := true;
 	
 	// Driptray oil removal pump
